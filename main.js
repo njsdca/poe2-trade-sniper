@@ -19,6 +19,7 @@ let cookieExtractor = null;
 // Use userData directory for config (writable location)
 // This resolves to: Windows: %APPDATA%\PoE2 Trade Sniper, macOS: ~/Library/Application Support/PoE2 Trade Sniper
 const getConfigPath = () => join(app.getPath('userData'), 'config.json');
+const getBrowserProfilePath = () => join(app.getPath('userData'), 'browser-profile');
 const soundPlayer = player({});
 
 // Default config
@@ -143,6 +144,7 @@ async function startSniper() {
 
   sniper = new TradeSniper(config, {
     soundFilePath: join(__dirname, config.soundFile || 'alert.wav'),
+    browserProfilePath: getBrowserProfilePath(),
   });
 
   // Forward events to renderer

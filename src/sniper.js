@@ -26,6 +26,9 @@ export class TradeSniper extends EventEmitter {
     // Sound setup
     this.soundPlayer = player({});
     this.soundFilePath = options.soundFilePath || join(__dirname, '..', 'alert.wav');
+
+    // Browser profile for persistent cookies
+    this.browserProfilePath = options.browserProfilePath || null;
   }
 
   log(level, message, queryId = null) {
@@ -411,8 +414,8 @@ export class TradeSniper extends EventEmitter {
 
       this.log('INFO', `Using browser: ${executablePath}`);
 
-      // Use visible browser for debugging - can switch to headless: 'new' for production
-      this.browser = await puppeteer.launch({
+      // Use persistent browser profile so cookies/login persist between sessions
+      const launchOptions = {
         headless: false, // VISIBLE MODE - shows browser window for debugging
         executablePath,
         args: [
@@ -423,7 +426,15 @@ export class TradeSniper extends EventEmitter {
           '--no-first-run',
           '--disable-blink-features=AutomationControlled', // Hide automation
         ],
-      });
+      };
+
+      // Use persistent profile if path provided
+      if (this.browserProfilePath) {
+        launchOptions.userDataDir = this.browserProfilePath;
+        this.log('INFO', `Using persistent browser profile: ${this.browserProfilePath}`);
+      }
+
+      this.browser = await puppeteer.launch(launchOptions);
 
       // Handle browser disconnection
       this.browser.on('disconnected', async () => {
@@ -433,65 +444,11 @@ export class TradeSniper extends EventEmitter {
         }
       });
 
-      // First, open a page and ensure we're logged in
-      const firstPage = await this.browser.newPage();
-      await firstPage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36');
+      // With persistent browser profile, cookies should be saved from previous sessions
+      // Just start the searches - if login is needed, user will see it in the browser window
+      this.log('INFO', 'Starting searches (log in via browser window if prompted)...');
 
-      // Set cookies from config if available
-      const cookies = this.getCookies();
-      if (cookies.length > 0) {
-        await firstPage.setCookie(...cookies);
-      }
-
-      // Navigate to trade site to check if logged in
-      this.log('INFO', 'Checking login status...');
-      await firstPage.goto('https://www.pathofexile.com/trade2/search/poe2/Standard', {
-        waitUntil: 'networkidle2',
-        timeout: 30000
-      });
-
-      // Check if we need to log in (look for login button or account name)
-      const needsLogin = await firstPage.evaluate(() => {
-        const loginBtn = document.querySelector('a[href*="login"], .login-btn, [class*="login"]');
-        const accountName = document.querySelector('.profile-link, .account-name, [class*="account"]');
-        return loginBtn && !accountName;
-      });
-
-      if (needsLogin) {
-        this.log('WARN', '>>> Please log in to the PoE website in the browser window <<<');
-        this.emit('log', { level: 'WARN', message: 'Waiting for login... Please log in to the browser window.' });
-
-        // Wait for login (check every 2 seconds for up to 2 minutes)
-        let loggedIn = false;
-        for (let i = 0; i < 60; i++) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-
-          const isLoggedIn = await firstPage.evaluate(() => {
-            const accountName = document.querySelector('.profile-link, .account-name, [class*="account"]');
-            const loginBtn = document.querySelector('a[href*="login"], .login-btn');
-            return accountName || !loginBtn;
-          }).catch(() => false);
-
-          if (isLoggedIn) {
-            loggedIn = true;
-            this.log('SUCCESS', 'Login detected! Starting searches...');
-            break;
-          }
-        }
-
-        if (!loggedIn) {
-          this.log('ERROR', 'Login timeout. Please restart and try again.');
-          await this.stop();
-          return;
-        }
-      } else {
-        this.log('SUCCESS', 'Already logged in!');
-      }
-
-      // Close the check page
-      await firstPage.close();
-
-      // Now start all queries - they'll share the browser session
+      // Start all queries - they share the browser session
       const startPromises = queries.map(async (query) => {
         const queryId = typeof query === 'string' ? query : query.id;
         const queryName = typeof query === 'string' ? query : (query.name || query.id);
