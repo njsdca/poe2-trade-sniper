@@ -503,12 +503,22 @@ export class TradeSniper extends EventEmitter {
     }
     this.pages.clear();
 
-    // Close browser
+    // Close browser - try gracefully first, then force kill
     if (this.browser) {
       try {
-        await this.browser.close();
+        // Get the browser process before closing
+        const browserProcess = this.browser.process();
+
+        // Try graceful close first
+        await this.browser.close().catch(() => {});
+
+        // If process still exists, force kill it
+        if (browserProcess && !browserProcess.killed) {
+          this.log('INFO', 'Force killing browser process...');
+          browserProcess.kill('SIGKILL');
+        }
       } catch (e) {
-        // Ignore close errors
+        this.log('WARN', `Error closing browser: ${e.message}`);
       }
       this.browser = null;
     }

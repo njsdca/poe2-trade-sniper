@@ -407,18 +407,36 @@ ipcMain.handle('download-update', async () => {
 ipcMain.handle('install-update', async () => {
   // Stop sniper and close browser first
   if (sniper) {
-    await sniper.stop();
+    try {
+      await sniper.stop();
+    } catch (e) {
+      console.error('Error stopping sniper:', e);
+    }
     sniper = null;
   }
 
-  // Mark as quitting so windows close properly
+  // Mark as quitting
   app.isQuitting = true;
 
-  // Small delay to ensure cleanup completes
-  await new Promise(resolve => setTimeout(resolve, 500));
+  // Close all windows
+  const windows = BrowserWindow.getAllWindows();
+  for (const win of windows) {
+    win.destroy();
+  }
 
-  // Quit and install - isSilent=false shows installer, forceRunAfter=true restarts app
-  autoUpdater.quitAndInstall(false, true);
+  // Destroy tray
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
+
+  // Give time for everything to close
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  // Force quit and install
+  setImmediate(() => {
+    autoUpdater.quitAndInstall(false, true);
+  });
 });
 
 ipcMain.handle('get-app-version', () => {
