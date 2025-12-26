@@ -60,48 +60,47 @@ export class TradeSniper extends EventEmitter {
       : `POESESSID=${poesessid}`;
   }
 
-  async triggerWhisper(hideoutToken) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-
+  async triggerWhisper(hideoutToken, page) {
     try {
-      const response = await fetch('https://www.pathofexile.com/api/trade2/whisper', {
-        method: 'POST',
-        headers: {
-          'Cookie': this.getCookieString(),
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-          'Accept': '*/*',
-          'Origin': 'https://www.pathofexile.com',
-          'Referer': 'https://www.pathofexile.com/',
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        body: JSON.stringify({ token: hideoutToken }),
-        signal: controller.signal,
-      });
+      // Make the whisper request from within the page context to use the same session cookies
+      const result = await page.evaluate(async (token) => {
+        try {
+          const response = await fetch('https://www.pathofexile.com/api/trade2/whisper', {
+            method: 'POST',
+            headers: {
+              'Accept': '*/*',
+              'Content-Type': 'application/json',
+              'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({ token }),
+            credentials: 'include', // Include cookies
+          });
 
-      clearTimeout(timeout);
+          if (!response.ok) {
+            const text = await response.text();
+            return { error: true, status: response.status, message: text };
+          }
 
-      if (!response.ok) {
-        const text = await response.text();
+          const data = await response.json();
+          return { success: true, data };
+        } catch (err) {
+          return { error: true, message: err.message };
+        }
+      }, hideoutToken);
 
-        if (response.status === 403) {
+      if (result.error) {
+        if (result.status === 403) {
           this.log('ERROR', '!!! COOKIE EXPIRED - UPDATE cf_clearance !!!');
           this.emit('cookie-expired');
           this.playSound();
           setTimeout(() => this.playSound(), 500);
           setTimeout(() => this.playSound(), 1000);
         }
-
-        throw new Error(`Whisper failed: ${response.status} - ${text}`);
+        throw new Error(`Whisper failed: ${result.status || ''} - ${result.message}`);
       }
 
-      return response.json();
+      return result.data;
     } catch (err) {
-      clearTimeout(timeout);
-      if (err.name === 'AbortError') {
-        throw new Error('Whisper request timed out');
-      }
       throw err;
     }
   }
@@ -240,8 +239,8 @@ export class TradeSniper extends EventEmitter {
                   hideoutToken,
                 });
 
-                // Fire and forget whisper to minimize latency
-                this.triggerWhisper(hideoutToken)
+                // Fire and forget whisper to minimize latency - use page context for auth
+                this.triggerWhisper(hideoutToken, page)
                   .then(() => {
                     const elapsed = Date.now() - startTime;
                     this.log('SUCCESS', `TELEPORT TRIGGERED in ${elapsed}ms!`, queryId);
