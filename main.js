@@ -2,8 +2,10 @@ import { app, BrowserWindow, Tray, Menu, ipcMain, Notification, nativeImage, dia
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { autoUpdater } from 'electron-updater';
+import electronUpdater from 'electron-updater';
 import player from 'play-sound';
+
+const { autoUpdater } = electronUpdater;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
