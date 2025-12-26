@@ -139,8 +139,35 @@ export class TradeSniper extends EventEmitter {
     const page = await this.browser.newPage();
     const cookies = this.getCookies();
 
+    // Set a realistic user agent
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36');
+
     await page.setCookie(...cookies);
     await page.setRequestInterception(true);
+
+    // Get CDP session for WebSocket monitoring
+    const client = await page.createCDPSession();
+    await client.send('Network.enable');
+
+    // Monitor WebSocket connections
+    client.on('Network.webSocketCreated', (params) => {
+      this.log('INFO', `WebSocket created: ${params.url}`, queryId);
+    });
+
+    client.on('Network.webSocketClosed', (params) => {
+      this.log('WARN', 'WebSocket closed', queryId);
+    });
+
+    client.on('Network.webSocketFrameReceived', (params) => {
+      try {
+        const payload = params.response?.payloadData;
+        if (payload && payload.includes('new')) {
+          this.log('INFO', `WebSocket received new items notification`, queryId);
+        }
+      } catch (e) {
+        // Ignore parse errors
+      }
+    });
 
     // Handle page crashes
     page.on('error', async (err) => {
@@ -158,16 +185,35 @@ export class TradeSniper extends EventEmitter {
       }
     });
 
+    // Log console messages from the page for debugging
+    page.on('console', (msg) => {
+      const text = msg.text();
+      if (text.includes('trade') || text.includes('socket') || text.includes('error')) {
+        this.log('DEBUG', `Console: ${text}`, queryId);
+      }
+    });
+
     page.on('request', (request) => {
+      const url = request.url();
+      // Log trade API requests
+      if (url.includes('/api/trade2/')) {
+        this.log('DEBUG', `Request: ${url}`, queryId);
+      }
       request.continue();
     });
 
     page.on('response', async (response) => {
       const url = response.url();
 
+      // Log trade API responses
+      if (url.includes('/api/trade2/')) {
+        this.log('DEBUG', `Response: ${url} - ${response.status()}`, queryId);
+      }
+
       if (url.includes('/api/trade2/fetch')) {
         try {
           const data = await response.json();
+          this.log('DEBUG', `Fetch response: ${data.result?.length || 0} items`, queryId);
 
           if (data.result && Array.isArray(data.result)) {
             for (const item of data.result) {
@@ -225,8 +271,23 @@ export class TradeSniper extends EventEmitter {
     this.log('INFO', `Opening live search: ${searchUrl}`, queryId);
 
     try {
-      await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-      this.log('SUCCESS', 'Live search page loaded', queryId);
+      await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+      this.log('INFO', 'Page loaded, waiting for live connection...', queryId);
+
+      // Wait for the live search to initialize - look for WebSocket or specific elements
+      await page.waitForFunction(() => {
+        // Check if the live search is active (look for specific UI indicators)
+        const liveIndicator = document.querySelector('.live-search-box, .live, [class*="live"]');
+        const resultsContainer = document.querySelector('.results, .resultset, [class*="result"]');
+        return liveIndicator || resultsContainer;
+      }, { timeout: 15000 }).catch(() => {
+        this.log('WARN', 'Live indicator not found, proceeding anyway...', queryId);
+      });
+
+      // Additional wait to ensure WebSocket is established
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      this.log('SUCCESS', 'Live search connected', queryId);
       this.emit('connected', { queryId, queryName });
 
       // Update page state
@@ -352,7 +413,7 @@ export class TradeSniper extends EventEmitter {
       this.log('INFO', `Using browser: ${executablePath}`);
 
       this.browser = await puppeteer.launch({
-        headless: true,
+        headless: 'new', // Use new headless mode for better compatibility
         executablePath,
         args: [
           '--no-sandbox',
@@ -362,6 +423,8 @@ export class TradeSniper extends EventEmitter {
           '--disable-gpu',
           '--no-first-run',
           '--no-zygote',
+          '--disable-web-security', // Allow cross-origin requests
+          '--disable-features=VizDisplayCompositor',
         ],
       });
 
