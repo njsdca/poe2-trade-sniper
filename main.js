@@ -402,8 +402,21 @@ ipcMain.handle('download-update', async () => {
   }
 });
 
-ipcMain.handle('install-update', () => {
-  autoUpdater.quitAndInstall();
+ipcMain.handle('install-update', async () => {
+  // Stop sniper and close browser first
+  if (sniper) {
+    await sniper.stop();
+    sniper = null;
+  }
+
+  // Mark as quitting so windows close properly
+  app.isQuitting = true;
+
+  // Small delay to ensure cleanup completes
+  await new Promise(resolve => setTimeout(resolve, 500));
+
+  // Quit and install - isSilent=false shows installer, forceRunAfter=true restarts app
+  autoUpdater.quitAndInstall(false, true);
 });
 
 ipcMain.handle('get-app-version', () => {
