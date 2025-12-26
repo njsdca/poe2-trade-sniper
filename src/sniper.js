@@ -412,19 +412,17 @@ export class TradeSniper extends EventEmitter {
 
       this.log('INFO', `Using browser: ${executablePath}`);
 
+      // Use visible browser for debugging - can switch to headless: 'new' for production
       this.browser = await puppeteer.launch({
-        headless: 'new', // Use new headless mode for better compatibility
+        headless: false, // VISIBLE MODE - shows browser window for debugging
         executablePath,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--disable-accelerated-2d-canvas',
-          '--disable-gpu',
           '--no-first-run',
-          '--no-zygote',
-          '--disable-web-security', // Allow cross-origin requests
-          '--disable-features=VizDisplayCompositor',
+          '--disable-blink-features=AutomationControlled', // Hide automation
         ],
       });
 
