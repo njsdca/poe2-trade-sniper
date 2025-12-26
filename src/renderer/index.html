@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>PoE2 Trade Sniper</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>PoE2 Trade Sniper</h1>
+      <div id="status-indicator" class="status stopped">Stopped</div>
+    </header>
+
+    <section class="settings-section">
+      <h2>Settings</h2>
+      <div class="cookie-row">
+        <button id="getCookiesBtn" class="btn btn-primary">Get Cookies from Browser</button>
+        <span id="cookieStatus" class="cookie-status"></span>
+      </div>
+      <div class="form-group">
+        <label for="poesessid">POESESSID:</label>
+        <input type="text" id="poesessid" placeholder="Your session ID from browser cookies">
+      </div>
+      <div class="form-group">
+        <label for="cf_clearance">cf_clearance:</label>
+        <input type="text" id="cf_clearance" placeholder="Cloudflare clearance cookie (optional)">
+      </div>
+      <div class="form-group">
+        <label for="league">League:</label>
+        <select id="league">
+          <option value="Fate%20of%20the%20Vaal">Fate of the Vaal</option>
+          <option value="Standard">Standard</option>
+          <option value="Hardcore">Hardcore</option>
+        </select>
+      </div>
+      <div class="form-group checkbox-group">
+        <label>
+          <input type="checkbox" id="soundEnabled" checked>
+          Enable sound notifications
+        </label>
+      </div>
+      <button id="saveConfigBtn" class="btn btn-secondary">Save Settings</button>
+    </section>
+
+    <section class="searches-section">
+      <h2>Searches</h2>
+      <div class="add-search">
+        <input type="text" id="searchUrl" placeholder="Paste trade URL here...">
+        <button id="addSearchBtn" class="btn btn-primary">+ Add</button>
+      </div>
+      <div id="searchList" class="search-list">
+        <!-- Searches will be added here -->
+      </div>
+    </section>
+
+    <section class="controls-section">
+      <button id="startBtn" class="btn btn-success btn-large">Start Sniper</button>
+      <button id="stopBtn" class="btn btn-danger btn-large" disabled>Stop Sniper</button>
+    </section>
+
+    <section class="log-section">
+      <h2>Activity Log</h2>
+      <div id="logContainer" class="log-container">
+        <div class="log-entry info">Ready. Configure your settings and add searches to begin.</div>
+      </div>
+      <button id="clearLogBtn" class="btn btn-secondary btn-small">Clear Log</button>
+    </section>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

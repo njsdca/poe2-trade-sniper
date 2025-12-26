@@ -1,0 +1,58 @@
+{
+  "name": "poe2-sniper",
+  "version": "1.1.0",
+  "description": "PoE2 Trade Sniper - Monitor live searches and auto-teleport to sellers",
+  "main": "main.js",
+  "type": "module",
+  "author": "njsdca",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/njsdca/poe2-trade-sniper.git"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "electron": "electron .",
+    "build": "electron-builder",
+    "publish": "electron-builder --publish always"
+  },
+  "dependencies": {
+    "@msgpack/msgpack": "^3.1.2",
+    "electron-updater": "^6.6.2",
+    "play-sound": "^1.1.6",
+    "puppeteer-core": "^24.34.0",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "electron": "^39.2.7",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.poe2.sniper",
+    "productName": "PoE2 Trade Sniper",
+    "files": [
+      "main.js",
+      "preload.js",
+      "config.json",
+      "alert.wav",
+      "src/**/*",
+      "assets/**/*",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "njsdca",
+      "repo": "poe2-trade-sniper"
+    }
+  }
+}

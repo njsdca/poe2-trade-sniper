@@ -1,0 +1,12 @@
+{
+  "poesessid": "YOUR_POESESSID_HERE",
+  "cf_clearance": "",
+  "league": "Fate%20of%20the%20Vaal",
+  "queries": [
+    "YOUR_QUERY_ID_HERE"
+  ],
+  "soundEnabled": true,
+  "soundFile": "alert.wav",
+  "reconnectDelayMs": 5000,
+  "fetchDelayMs": 100
+}
