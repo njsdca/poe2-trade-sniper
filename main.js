@@ -1,8 +1,9 @@
-import { app, BrowserWindow, Tray, Menu, ipcMain, Notification, nativeImage, dialog } from 'electron';
+import { app, BrowserWindow, Tray, Menu, ipcMain, Notification, nativeImage, dialog, globalShortcut } from 'electron';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { autoUpdater } from 'electron-updater';
+import player from 'play-sound';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -14,6 +15,7 @@ let sniperRunning = false;
 let cookieExtractor = null;
 
 const configPath = join(__dirname, 'config.json');
+const soundPlayer = player({});
 
 // Default config
 const defaultConfig = {
@@ -23,6 +25,8 @@ const defaultConfig = {
   queries: [],
   soundEnabled: true,
   soundFile: 'alert.wav',
+  startMinimized: false,
+  autoStart: false,
   reconnectDelayMs: 5000,
   fetchDelayMs: 100,
 };
@@ -59,6 +63,30 @@ function showNotification(title, body) {
   if (Notification.isSupported()) {
     new Notification({ title, body }).show();
   }
+}
+
+function playAlertSound() {
+  const config = loadConfig();
+  if (!config.soundEnabled || config.soundFile === 'none') return;
+
+  const soundPath = join(__dirname, config.soundFile);
+  if (!existsSync(soundPath)) {
+    // Try default alert.wav
+    const defaultPath = join(__dirname, 'alert.wav');
+    if (existsSync(defaultPath)) {
+      soundPlayer.play(defaultPath, (err) => {
+        if (err) console.error('Failed to play sound:', err);
+      });
+    } else {
+      // Terminal bell as fallback
+      process.stdout.write('\x07');
+    }
+    return;
+  }
+
+  soundPlayer.play(soundPath, (err) => {
+    if (err) console.error('Failed to play sound:', err);
+  });
 }
 
 function updateTrayMenu() {
@@ -129,6 +157,14 @@ async function startSniper() {
     sendToRenderer('connected', data);
   });
 
+  sniper.on('disconnected', (data) => {
+    sendToRenderer('disconnected', data);
+  });
+
+  sniper.on('reconnecting', (data) => {
+    sendToRenderer('reconnecting', data);
+  });
+
   sniper.on('error', (data) => {
     sendToRenderer('error', data);
   });
@@ -158,11 +194,13 @@ async function stopSniper() {
 }
 
 function createWindow() {
+  const config = loadConfig();
+
   mainWindow = new BrowserWindow({
-    width: 700,
-    height: 800,
-    minWidth: 500,
-    minHeight: 600,
+    width: 750,
+    height: 850,
+    minWidth: 550,
+    minHeight: 650,
     icon: join(__dirname, 'assets', 'icon.ico'),
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
@@ -175,7 +213,10 @@ function createWindow() {
   mainWindow.loadFile(join(__dirname, 'src', 'renderer', 'index.html'));
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
+    // Show window unless startMinimized is enabled
+    if (!config.startMinimized) {
+      mainWindow.show();
+    }
   });
 
   // Minimize to tray instead of closing
@@ -215,6 +256,30 @@ function createTray() {
   });
 }
 
+function registerHotkeys() {
+  // Ctrl+Shift+S to toggle sniper
+  globalShortcut.register('CommandOrControl+Shift+S', async () => {
+    if (sniperRunning) {
+      await stopSniper();
+    } else {
+      await startSniper();
+    }
+    sendToRenderer('hotkey', { action: 'toggle' });
+  });
+
+  // Ctrl+Shift+H to show/hide window
+  globalShortcut.register('CommandOrControl+Shift+H', () => {
+    if (mainWindow) {
+      if (mainWindow.isVisible()) {
+        mainWindow.hide();
+      } else {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    }
+  });
+}
+
 // IPC Handlers
 ipcMain.handle('get-config', () => {
   return loadConfig();
@@ -236,6 +301,11 @@ ipcMain.handle('stop-sniper', async () => {
 
 ipcMain.handle('get-status', () => {
   return { running: sniperRunning };
+});
+
+ipcMain.handle('test-sound', () => {
+  playAlertSound();
+  return { success: true };
 });
 
 ipcMain.handle('extract-cookies', async () => {
@@ -345,6 +415,7 @@ ipcMain.handle('get-app-version', () => {
 app.whenReady().then(() => {
   createWindow();
   createTray();
+  registerHotkeys();
 
   // Check for updates after a short delay
   setTimeout(() => {
@@ -360,6 +431,11 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   // Don't quit on window close - keep in tray
+});
+
+app.on('will-quit', () => {
+  // Unregister all shortcuts
+  globalShortcut.unregisterAll();
 });
 
 app.on('before-quit', async () => {

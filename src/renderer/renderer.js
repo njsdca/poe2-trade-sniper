@@ -2,8 +2,12 @@
 const poesessidInput = document.getElementById('poesessid');
 const cfClearanceInput = document.getElementById('cf_clearance');
 const leagueSelect = document.getElementById('league');
+const alertSoundSelect = document.getElementById('alertSound');
 const soundEnabledCheckbox = document.getElementById('soundEnabled');
+const startMinimizedCheckbox = document.getElementById('startMinimized');
+const autoStartCheckbox = document.getElementById('autoStart');
 const saveConfigBtn = document.getElementById('saveConfigBtn');
+const testSoundBtn = document.getElementById('testSoundBtn');
 const getCookiesBtn = document.getElementById('getCookiesBtn');
 const cookieStatus = document.getElementById('cookieStatus');
 
@@ -18,10 +22,31 @@ const statusIndicator = document.getElementById('status-indicator');
 const logContainer = document.getElementById('logContainer');
 const clearLogBtn = document.getElementById('clearLogBtn');
 
+const versionBadge = document.getElementById('versionBadge');
+const updateStatus = document.getElementById('updateStatus');
+
+// Stats elements
+const statListings = document.getElementById('statListings');
+const statTeleports = document.getElementById('statTeleports');
+const statAvgTime = document.getElementById('statAvgTime');
+const statUptime = document.getElementById('statUptime');
+
 // State
 let config = {};
 let isRunning = false;
 let isExtractingCookies = false;
+
+// Stats tracking
+let stats = {
+  listings: 0,
+  teleports: 0,
+  totalTime: 0,
+  startTime: null,
+};
+let uptimeInterval = null;
+
+// Connected queries tracking
+let connectedQueries = new Set();
 
 // URL parsing regex
 const TRADE_URL_REGEX = /trade2\/search\/poe2\/[^/]+\/([a-zA-Z0-9]+)/;
@@ -35,15 +60,28 @@ async function init() {
   const status = await window.api.getStatus();
   updateRunningState(status.running);
 
+  // Load version
+  const version = await window.api.getAppVersion();
+  versionBadge.textContent = `v${version}`;
+
   setupEventListeners();
   setupIPCListeners();
+  setupCollapsibleSections();
+
+  // Auto-start if configured
+  if (config.autoStart && config.poesessid && config.queries?.length > 0) {
+    setTimeout(() => startSniper(), 1000);
+  }
 }
 
 function loadConfigToUI() {
   poesessidInput.value = config.poesessid || '';
   cfClearanceInput.value = config.cf_clearance || '';
   leagueSelect.value = config.league || 'Fate%20of%20the%20Vaal';
+  alertSoundSelect.value = config.soundFile || 'alert.wav';
   soundEnabledCheckbox.checked = config.soundEnabled !== false;
+  startMinimizedCheckbox.checked = config.startMinimized === true;
+  autoStartCheckbox.checked = config.autoStart === true;
 }
 
 function getConfigFromUI() {
@@ -52,7 +90,10 @@ function getConfigFromUI() {
     poesessid: poesessidInput.value.trim(),
     cf_clearance: cfClearanceInput.value.trim(),
     league: leagueSelect.value,
+    soundFile: alertSoundSelect.value,
     soundEnabled: soundEnabledCheckbox.checked,
+    startMinimized: startMinimizedCheckbox.checked,
+    autoStart: autoStartCheckbox.checked,
   };
 }
 
@@ -67,14 +108,16 @@ function renderSearchList() {
   searchList.innerHTML = queries.map((query, index) => {
     const id = typeof query === 'string' ? query : query.id;
     const name = typeof query === 'string' ? '' : (query.name || '');
+    const isConnected = connectedQueries.has(id);
 
     return `
       <div class="search-item" data-index="${index}">
         <div class="query-info">
+          <span class="connection-status ${isConnected ? 'connected' : ''}" title="${isConnected ? 'Connected' : 'Disconnected'}"></span>
           <span class="query-id">${id}</span>
           ${name ? `<span class="query-name">(${name})</span>` : ''}
         </div>
-        <button class="remove-btn" data-index="${index}">&times;</button>
+        <button class="remove-btn" data-index="${index}" ${isRunning ? 'disabled' : ''}>&times;</button>
       </div>
     `;
   }).join('');
@@ -82,6 +125,7 @@ function renderSearchList() {
   // Add remove handlers
   searchList.querySelectorAll('.remove-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
+      if (isRunning) return;
       const index = parseInt(e.target.dataset.index);
       removeSearch(index);
     });
@@ -153,6 +197,10 @@ async function saveConfig() {
   }
 }
 
+async function testSound() {
+  await window.api.testSound();
+}
+
 async function extractCookies() {
   if (isExtractingCookies) return;
 
@@ -207,6 +255,12 @@ async function startSniper() {
     return;
   }
 
+  // Reset stats
+  stats = { listings: 0, teleports: 0, totalTime: 0, startTime: Date.now() };
+  connectedQueries.clear();
+  updateStats();
+  startUptimeTimer();
+
   addLogEntry('info', 'Starting sniper...');
   await window.api.startSniper();
 }
@@ -216,6 +270,9 @@ async function stopSniper() {
 
   addLogEntry('info', 'Stopping sniper...');
   await window.api.stopSniper();
+  stopUptimeTimer();
+  connectedQueries.clear();
+  renderSearchList();
 }
 
 function updateRunningState(running) {
@@ -231,9 +288,62 @@ function updateRunningState(running) {
   poesessidInput.disabled = running;
   cfClearanceInput.disabled = running;
   leagueSelect.disabled = running;
+  alertSoundSelect.disabled = running;
   saveConfigBtn.disabled = running;
   addSearchBtn.disabled = running;
   searchUrlInput.disabled = running;
+  getCookiesBtn.disabled = running;
+  startMinimizedCheckbox.disabled = running;
+  autoStartCheckbox.disabled = running;
+
+  if (!running) {
+    stopUptimeTimer();
+    connectedQueries.clear();
+  }
+  renderSearchList();
+}
+
+function updateStats() {
+  statListings.textContent = stats.listings;
+  statTeleports.textContent = stats.teleports;
+
+  if (stats.teleports > 0) {
+    const avg = Math.round(stats.totalTime / stats.teleports);
+    statAvgTime.textContent = `${avg}ms`;
+  } else {
+    statAvgTime.textContent = '-';
+  }
+}
+
+function startUptimeTimer() {
+  stats.startTime = Date.now();
+  updateUptime();
+  uptimeInterval = setInterval(updateUptime, 1000);
+}
+
+function stopUptimeTimer() {
+  if (uptimeInterval) {
+    clearInterval(uptimeInterval);
+    uptimeInterval = null;
+  }
+}
+
+function updateUptime() {
+  if (!stats.startTime) {
+    statUptime.textContent = '00:00';
+    return;
+  }
+
+  const elapsed = Math.floor((Date.now() - stats.startTime) / 1000);
+  const hours = Math.floor(elapsed / 3600);
+  const minutes = Math.floor((elapsed % 3600) / 60);
+  const seconds = elapsed % 60;
+
+  if (hours > 0) {
+    statUptime.textContent = `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  } else {
+    statUptime.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  }
 }
 
 function addLogEntry(level, message) {
@@ -257,8 +367,27 @@ function clearLog() {
   addLogEntry('info', 'Log cleared.');
 }
 
+function setupCollapsibleSections() {
+  document.querySelectorAll('.section-header').forEach(header => {
+    header.addEventListener('click', () => {
+      const section = header.dataset.section;
+      const content = document.getElementById(`${section}Content`);
+      const icon = header.querySelector('.collapse-icon');
+
+      if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.textContent = '▼';
+      } else {
+        content.style.display = 'none';
+        icon.textContent = '▶';
+      }
+    });
+  });
+}
+
 function setupEventListeners() {
   saveConfigBtn.addEventListener('click', saveConfig);
+  testSoundBtn.addEventListener('click', testSound);
   getCookiesBtn.addEventListener('click', extractCookies);
   addSearchBtn.addEventListener('click', addSearch);
   startBtn.addEventListener('click', startSniper);
@@ -280,15 +409,32 @@ function setupIPCListeners() {
   });
 
   window.api.onListing((data) => {
+    stats.listings++;
+    updateStats();
     addLogEntry('listing', `NEW: ${data.itemName} @ ${data.price} from ${data.account}`);
   });
 
   window.api.onTeleport((data) => {
+    stats.teleports++;
+    stats.totalTime += data.elapsed;
+    updateStats();
     addLogEntry('success', `TELEPORT to ${data.itemName} in ${data.elapsed}ms`);
   });
 
   window.api.onConnected((data) => {
+    connectedQueries.add(data.queryId);
+    renderSearchList();
     addLogEntry('success', `Connected: ${data.queryId}`);
+  });
+
+  window.api.onDisconnected((data) => {
+    connectedQueries.delete(data.queryId);
+    renderSearchList();
+    addLogEntry('warn', `Disconnected: ${data.queryId}`);
+  });
+
+  window.api.onReconnecting((data) => {
+    addLogEntry('info', `Reconnecting: ${data.queryId} (attempt ${data.attempt})`);
   });
 
   window.api.onError((data) => {
@@ -306,6 +452,46 @@ function setupIPCListeners() {
   window.api.onCookieExtractStatus((data) => {
     if (data.status) {
       cookieStatus.textContent = data.status;
+    }
+  });
+
+  window.api.onUpdateStatus((data) => {
+    switch (data.status) {
+      case 'checking':
+        updateStatus.textContent = 'Checking for updates...';
+        updateStatus.className = 'update-status checking';
+        break;
+      case 'available':
+        updateStatus.textContent = `Update ${data.version} available!`;
+        updateStatus.className = 'update-status available';
+        break;
+      case 'downloading':
+        updateStatus.textContent = `Downloading: ${data.percent}%`;
+        updateStatus.className = 'update-status checking';
+        break;
+      case 'ready':
+        updateStatus.textContent = `Update ready - restart to install`;
+        updateStatus.className = 'update-status available';
+        break;
+      case 'up-to-date':
+        updateStatus.textContent = '';
+        updateStatus.className = 'update-status';
+        break;
+      case 'error':
+        updateStatus.textContent = '';
+        updateStatus.className = 'update-status';
+        break;
+    }
+  });
+
+  // Handle hotkey events from main process
+  window.api.onHotkey((data) => {
+    if (data.action === 'toggle') {
+      if (isRunning) {
+        stopSniper();
+      } else {
+        startSniper();
+      }
     }
   });
 }

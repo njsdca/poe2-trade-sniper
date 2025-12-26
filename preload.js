@@ -14,6 +14,9 @@ contextBridge.exposeInMainWorld('api', {
   extractCookies: () => ipcRenderer.invoke('extract-cookies'),
   cancelCookieExtract: () => ipcRenderer.invoke('cancel-cookie-extract'),
 
+  // Sound
+  testSound: () => ipcRenderer.invoke('test-sound'),
+
   // Updates
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
@@ -31,6 +34,12 @@ contextBridge.exposeInMainWorld('api', {
   onConnected: (callback) => {
     ipcRenderer.on('connected', (event, data) => callback(data));
   },
+  onDisconnected: (callback) => {
+    ipcRenderer.on('disconnected', (event, data) => callback(data));
+  },
+  onReconnecting: (callback) => {
+    ipcRenderer.on('reconnecting', (event, data) => callback(data));
+  },
   onError: (callback) => {
     ipcRenderer.on('error', (event, data) => callback(data));
   },
@@ -45,5 +54,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   onUpdateStatus: (callback) => {
     ipcRenderer.on('update-status', (event, data) => callback(data));
+  },
+  onHotkey: (callback) => {
+    ipcRenderer.on('hotkey', (event, data) => callback(data));
   },
 });

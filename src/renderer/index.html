@@ -10,49 +10,108 @@
 <body>
   <div class="container">
     <header>
-      <h1>PoE2 Trade Sniper</h1>
+      <div class="header-left">
+        <h1>PoE2 Trade Sniper</h1>
+        <span id="versionBadge" class="version-badge">v0.0.0</span>
+      </div>
       <div id="status-indicator" class="status stopped">Stopped</div>
     </header>
 
+    <div class="stats-bar">
+      <div class="stat-item">
+        <span id="statListings" class="stat-value">0</span>
+        <span class="stat-label">Listings</span>
+      </div>
+      <div class="stat-item">
+        <span id="statTeleports" class="stat-value">0</span>
+        <span class="stat-label">Teleports</span>
+      </div>
+      <div class="stat-item">
+        <span id="statAvgTime" class="stat-value">-</span>
+        <span class="stat-label">Avg Time</span>
+      </div>
+      <div class="stat-item">
+        <span id="statUptime" class="stat-value">00:00</span>
+        <span class="stat-label">Uptime</span>
+      </div>
+    </div>
+
     <section class="settings-section">
-      <h2>Settings</h2>
-      <div class="cookie-row">
-        <button id="getCookiesBtn" class="btn btn-primary">Get Cookies from Browser</button>
-        <span id="cookieStatus" class="cookie-status"></span>
+      <div class="section-header" data-section="settings">
+        <h2>Settings</h2>
+        <span class="collapse-icon">▼</span>
       </div>
-      <div class="form-group">
-        <label for="poesessid">POESESSID:</label>
-        <input type="text" id="poesessid" placeholder="Your session ID from browser cookies">
+      <div class="section-content" id="settingsContent">
+        <div class="cookie-row">
+          <button id="getCookiesBtn" class="btn btn-primary">Get Cookies from Browser</button>
+          <span id="cookieStatus" class="cookie-status"></span>
+        </div>
+        <div class="form-group">
+          <label for="poesessid">POESESSID:</label>
+          <input type="text" id="poesessid" placeholder="Your session ID from browser cookies">
+        </div>
+        <div class="form-group">
+          <label for="cf_clearance">cf_clearance:</label>
+          <input type="text" id="cf_clearance" placeholder="Cloudflare clearance cookie (optional)">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="league">League:</label>
+            <select id="league">
+              <option value="Fate%20of%20the%20Vaal">Fate of the Vaal</option>
+              <option value="Standard">Standard</option>
+              <option value="Hardcore">Hardcore</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="alertSound">Alert Sound:</label>
+            <select id="alertSound">
+              <option value="alert.wav">Default Alert</option>
+              <option value="chime.wav">Chime</option>
+              <option value="bell.wav">Bell</option>
+              <option value="ping.wav">Ping</option>
+              <option value="none">No Sound</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" id="soundEnabled" checked>
+              Enable sound notifications
+            </label>
+          </div>
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" id="startMinimized">
+              Start minimized to tray
+            </label>
+          </div>
+        </div>
+        <div class="form-group checkbox-group">
+          <label>
+            <input type="checkbox" id="autoStart">
+            Auto-start sniper on launch
+          </label>
+        </div>
+        <button id="saveConfigBtn" class="btn btn-secondary">Save Settings</button>
+        <button id="testSoundBtn" class="btn btn-secondary" style="margin-left: 8px;">Test Sound</button>
       </div>
-      <div class="form-group">
-        <label for="cf_clearance">cf_clearance:</label>
-        <input type="text" id="cf_clearance" placeholder="Cloudflare clearance cookie (optional)">
-      </div>
-      <div class="form-group">
-        <label for="league">League:</label>
-        <select id="league">
-          <option value="Fate%20of%20the%20Vaal">Fate of the Vaal</option>
-          <option value="Standard">Standard</option>
-          <option value="Hardcore">Hardcore</option>
-        </select>
-      </div>
-      <div class="form-group checkbox-group">
-        <label>
-          <input type="checkbox" id="soundEnabled" checked>
-          Enable sound notifications
-        </label>
-      </div>
-      <button id="saveConfigBtn" class="btn btn-secondary">Save Settings</button>
     </section>
 
     <section class="searches-section">
-      <h2>Searches</h2>
-      <div class="add-search">
-        <input type="text" id="searchUrl" placeholder="Paste trade URL here...">
-        <button id="addSearchBtn" class="btn btn-primary">+ Add</button>
+      <div class="section-header" data-section="searches">
+        <h2>Searches</h2>
+        <span class="collapse-icon">▼</span>
       </div>
-      <div id="searchList" class="search-list">
-        <!-- Searches will be added here -->
+      <div class="section-content" id="searchesContent">
+        <div class="add-search">
+          <input type="text" id="searchUrl" placeholder="Paste trade URL or query ID...">
+          <button id="addSearchBtn" class="btn btn-primary">+ Add</button>
+        </div>
+        <div id="searchList" class="search-list">
+          <!-- Searches will be added here -->
+        </div>
       </div>
     </section>
 
@@ -60,15 +119,25 @@
       <button id="startBtn" class="btn btn-success btn-large">Start Sniper</button>
       <button id="stopBtn" class="btn btn-danger btn-large" disabled>Stop Sniper</button>
     </section>
+    <div class="hotkey-hint">Hotkeys: Ctrl+Shift+S (Start/Stop) | Ctrl+Shift+H (Show/Hide)</div>
 
     <section class="log-section">
-      <h2>Activity Log</h2>
+      <div class="log-header">
+        <h2>Activity Log</h2>
+        <button id="clearLogBtn" class="btn btn-secondary btn-small">Clear</button>
+      </div>
       <div id="logContainer" class="log-container">
         <div class="log-entry info">Ready. Configure your settings and add searches to begin.</div>
       </div>
-      <button id="clearLogBtn" class="btn btn-secondary btn-small">Clear Log</button>
     </section>
   </div>
+
+  <footer class="footer">
+    <div>
+      <a href="https://github.com/njsdca/poe2-trade-sniper" target="_blank">GitHub</a>
+    </div>
+    <div id="updateStatus" class="update-status"></div>
+  </footer>
 
   <script src="renderer.js"></script>
 </body>
