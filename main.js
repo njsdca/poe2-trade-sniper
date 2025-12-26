@@ -16,7 +16,9 @@ let sniper = null;
 let sniperRunning = false;
 let cookieExtractor = null;
 
-const configPath = join(__dirname, 'config.json');
+// Use userData directory for config (writable location)
+// This resolves to: Windows: %APPDATA%\PoE2 Trade Sniper, macOS: ~/Library/Application Support/PoE2 Trade Sniper
+const getConfigPath = () => join(app.getPath('userData'), 'config.json');
 const soundPlayer = player({});
 
 // Default config
@@ -34,6 +36,7 @@ const defaultConfig = {
 };
 
 function loadConfig() {
+  const configPath = getConfigPath();
   try {
     if (existsSync(configPath)) {
       const data = JSON.parse(readFileSync(configPath, 'utf-8'));
@@ -46,6 +49,7 @@ function loadConfig() {
 }
 
 function saveConfig(config) {
+  const configPath = getConfigPath();
   try {
     writeFileSync(configPath, JSON.stringify(config, null, 2));
     return true;

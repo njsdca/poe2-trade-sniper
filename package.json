@@ -1,6 +1,6 @@
 {
   "name": "poe2-sniper",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "PoE2 Trade Sniper - Monitor live searches and auto-teleport to sellers",
   "main": "main.js",
   "type": "module",
@@ -35,7 +35,6 @@
     "files": [
       "main.js",
       "preload.js",
-      "config.json",
       "alert.wav",
       "src/**/*",
       "assets/**/*",
