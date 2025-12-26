@@ -506,6 +506,18 @@ select:disabled {
   color: var(--text-secondary);
 }
 
+.footer-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.footer-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .footer a {
   color: var(--accent);
   text-decoration: none;
@@ -515,10 +527,14 @@ select:disabled {
   text-decoration: underline;
 }
 
+.footer .version-badge {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+}
+
 .update-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  font-size: 0.75rem;
+  margin-right: 4px;
 }
 
 .update-status.checking {

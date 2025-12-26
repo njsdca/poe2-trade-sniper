@@ -10,10 +10,7 @@
 <body>
   <div class="container">
     <header>
-      <div class="header-left">
-        <h1>PoE2 Trade Sniper</h1>
-        <span id="versionBadge" class="version-badge">v0.0.0</span>
-      </div>
+      <h1>PoE2 Trade Sniper</h1>
       <div id="status-indicator" class="status stopped">Stopped</div>
     </header>
 
@@ -133,10 +130,16 @@
   </div>
 
   <footer class="footer">
-    <div>
+    <div class="footer-left">
+      <span id="versionBadge" class="version-badge">v0.0.0</span>
       <a href="https://github.com/njsdca/poe2-trade-sniper" target="_blank">GitHub</a>
     </div>
-    <div id="updateStatus" class="update-status"></div>
+    <div class="footer-right">
+      <span id="updateStatus" class="update-status"></span>
+      <button id="checkUpdateBtn" class="btn btn-small btn-secondary">Check for Updates</button>
+      <button id="downloadUpdateBtn" class="btn btn-small btn-primary" style="display: none;">Download Update</button>
+      <button id="installUpdateBtn" class="btn btn-small btn-success" style="display: none;">Restart & Install</button>
+    </div>
   </footer>
 
   <script src="renderer.js"></script>

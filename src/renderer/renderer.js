@@ -24,6 +24,9 @@ const clearLogBtn = document.getElementById('clearLogBtn');
 
 const versionBadge = document.getElementById('versionBadge');
 const updateStatus = document.getElementById('updateStatus');
+const checkUpdateBtn = document.getElementById('checkUpdateBtn');
+const downloadUpdateBtn = document.getElementById('downloadUpdateBtn');
+const installUpdateBtn = document.getElementById('installUpdateBtn');
 
 // Stats elements
 const statListings = document.getElementById('statListings');
@@ -35,6 +38,7 @@ const statUptime = document.getElementById('statUptime');
 let config = {};
 let isRunning = false;
 let isExtractingCookies = false;
+let availableVersion = null;
 
 // Stats tracking
 let stats = {
@@ -394,12 +398,56 @@ function setupEventListeners() {
   stopBtn.addEventListener('click', stopSniper);
   clearLogBtn.addEventListener('click', clearLog);
 
+  // Update buttons
+  checkUpdateBtn.addEventListener('click', checkForUpdates);
+  downloadUpdateBtn.addEventListener('click', downloadUpdate);
+  installUpdateBtn.addEventListener('click', installUpdate);
+
   // Enter key to add search
   searchUrlInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
       addSearch();
     }
   });
+}
+
+async function checkForUpdates() {
+  checkUpdateBtn.disabled = true;
+  checkUpdateBtn.textContent = 'Checking...';
+  updateStatus.textContent = 'Checking for updates...';
+  updateStatus.className = 'update-status checking';
+
+  const result = await window.api.checkForUpdates();
+
+  checkUpdateBtn.disabled = false;
+  checkUpdateBtn.textContent = 'Check for Updates';
+
+  if (result.error) {
+    updateStatus.textContent = `Error: ${result.error}`;
+    updateStatus.className = 'update-status error';
+    addLogEntry('error', `Update check failed: ${result.error}`);
+  }
+}
+
+async function downloadUpdate() {
+  downloadUpdateBtn.disabled = true;
+  downloadUpdateBtn.textContent = 'Starting...';
+  addLogEntry('info', `Downloading update v${availableVersion}...`);
+
+  const result = await window.api.downloadUpdate();
+
+  if (result.error) {
+    downloadUpdateBtn.disabled = false;
+    downloadUpdateBtn.textContent = 'Download Update';
+    updateStatus.textContent = `Download failed: ${result.error}`;
+    updateStatus.className = 'update-status error';
+    addLogEntry('error', `Download failed: ${result.error}`);
+  }
+}
+
+function installUpdate() {
+  addLogEntry('info', 'Installing update and restarting...');
+  window.api.installUpdate();
 }
 
 function setupIPCListeners() {
@@ -456,30 +504,54 @@ function setupIPCListeners() {
   });
 
   window.api.onUpdateStatus((data) => {
+    // Reset button visibility
+    checkUpdateBtn.style.display = 'none';
+    downloadUpdateBtn.style.display = 'none';
+    installUpdateBtn.style.display = 'none';
+
     switch (data.status) {
       case 'checking':
-        updateStatus.textContent = 'Checking for updates...';
+        updateStatus.textContent = 'Checking...';
         updateStatus.className = 'update-status checking';
         break;
       case 'available':
-        updateStatus.textContent = `Update ${data.version} available!`;
+        availableVersion = data.version;
+        updateStatus.textContent = `v${data.version} available`;
         updateStatus.className = 'update-status available';
+        downloadUpdateBtn.style.display = 'inline-block';
+        downloadUpdateBtn.disabled = false;
+        downloadUpdateBtn.textContent = 'Download Update';
+        addLogEntry('info', `Update available: v${data.version}`);
         break;
       case 'downloading':
         updateStatus.textContent = `Downloading: ${data.percent}%`;
         updateStatus.className = 'update-status checking';
+        downloadUpdateBtn.style.display = 'inline-block';
+        downloadUpdateBtn.disabled = true;
+        downloadUpdateBtn.textContent = `${data.percent}%`;
         break;
       case 'ready':
-        updateStatus.textContent = `Update ready - restart to install`;
+        updateStatus.textContent = 'Ready to install';
         updateStatus.className = 'update-status available';
+        installUpdateBtn.style.display = 'inline-block';
+        addLogEntry('success', 'Update downloaded! Click "Restart & Install" to update.');
         break;
       case 'up-to-date':
-        updateStatus.textContent = '';
+        updateStatus.textContent = 'Up to date';
         updateStatus.className = 'update-status';
+        checkUpdateBtn.style.display = 'inline-block';
+        addLogEntry('info', 'You are running the latest version.');
+        // Clear the message after 3 seconds
+        setTimeout(() => {
+          if (updateStatus.textContent === 'Up to date') {
+            updateStatus.textContent = '';
+          }
+        }, 3000);
         break;
       case 'error':
         updateStatus.textContent = '';
         updateStatus.className = 'update-status';
+        checkUpdateBtn.style.display = 'inline-block';
         break;
     }
   });

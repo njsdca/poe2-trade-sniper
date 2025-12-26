@@ -363,16 +363,6 @@ autoUpdater.on('checking-for-update', () => {
 
 autoUpdater.on('update-available', (info) => {
   sendToRenderer('update-status', { status: 'available', version: info.version });
-  dialog.showMessageBox(mainWindow, {
-    type: 'info',
-    title: 'Update Available',
-    message: `Version ${info.version} is available. Download now?`,
-    buttons: ['Download', 'Later'],
-  }).then((result) => {
-    if (result.response === 0) {
-      autoUpdater.downloadUpdate();
-    }
-  });
 });
 
 autoUpdater.on('update-not-available', () => {
@@ -388,16 +378,6 @@ autoUpdater.on('download-progress', (progress) => {
 
 autoUpdater.on('update-downloaded', (info) => {
   sendToRenderer('update-status', { status: 'ready', version: info.version });
-  dialog.showMessageBox(mainWindow, {
-    type: 'info',
-    title: 'Update Ready',
-    message: `Version ${info.version} has been downloaded. Restart now to install?`,
-    buttons: ['Restart', 'Later'],
-  }).then((result) => {
-    if (result.response === 0) {
-      autoUpdater.quitAndInstall();
-    }
-  });
 });
 
 autoUpdater.on('error', (err) => {
@@ -406,11 +386,24 @@ autoUpdater.on('error', (err) => {
 
 ipcMain.handle('check-for-updates', async () => {
   try {
-    await autoUpdater.checkForUpdates();
+    const result = await autoUpdater.checkForUpdates();
+    return { success: true, version: result?.updateInfo?.version };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('download-update', async () => {
+  try {
+    await autoUpdater.downloadUpdate();
     return { success: true };
   } catch (err) {
     return { error: err.message };
   }
+});
+
+ipcMain.handle('install-update', () => {
+  autoUpdater.quitAndInstall();
 });
 
 ipcMain.handle('get-app-version', () => {
