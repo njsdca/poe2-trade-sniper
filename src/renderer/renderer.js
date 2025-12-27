@@ -43,7 +43,6 @@ const updateBadge = document.getElementById('updateBadge');
 // Stats elements
 const statListings = document.getElementById('statListings');
 const statTeleports = document.getElementById('statTeleports');
-const statAvgTime = document.getElementById('statAvgTime');
 const statUptime = document.getElementById('statUptime');
 
 // Tab elements
@@ -360,13 +359,6 @@ function updateRunningState(running) {
 function updateStats() {
   statListings.textContent = stats.listings;
   statTeleports.textContent = stats.teleports;
-
-  if (stats.teleports > 0) {
-    const avg = Math.round(stats.totalTime / stats.teleports);
-    statAvgTime.textContent = `${avg}ms`;
-  } else {
-    statAvgTime.textContent = '-';
-  }
 }
 
 function startUptimeTimer() {
