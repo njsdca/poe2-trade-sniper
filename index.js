@@ -120,7 +120,7 @@ let browser = null;
 
 async function main() {
   log('INFO', '='.repeat(60));
-  log('INFO', 'PoE2 Trade Sniper Starting (Puppeteer Mode)');
+  log('INFO', 'Divinedge Starting (Puppeteer Mode)');
   log('INFO', `League: ${decodeURIComponent(league)}`);
   log('INFO', `Monitoring ${queries.length} search(es): ${queries.join(', ')}`);
   log('INFO', '='.repeat(60));

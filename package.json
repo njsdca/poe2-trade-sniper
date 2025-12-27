@@ -1,7 +1,7 @@
 {
-  "name": "poe2-sniper",
-  "version": "1.2.10",
-  "description": "PoE2 Trade Sniper - Monitor live searches and auto-teleport to sellers",
+  "name": "divinedge",
+  "version": "1.2.17",
+  "description": "Divinedge - Monitor live searches and auto-teleport to sellers",
   "main": "main.js",
   "type": "module",
   "author": "njsdca",
@@ -27,11 +27,13 @@
   },
   "devDependencies": {
     "electron": "^39.2.7",
-    "electron-builder": "^26.0.12"
+    "electron-builder": "^26.0.12",
+    "playwright": "^1.57.0",
+    "sharp": "^0.34.5"
   },
   "build": {
-    "appId": "com.poe2.sniper",
-    "productName": "PoE2 Trade Sniper",
+    "appId": "com.divinedge.app",
+    "productName": "Divinedge",
     "files": [
       "main.js",
       "preload.js",

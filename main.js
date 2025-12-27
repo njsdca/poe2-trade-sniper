@@ -17,7 +17,7 @@ let sniperRunning = false;
 let cookieExtractor = null;
 
 // Use userData directory for config (writable location)
-// This resolves to: Windows: %APPDATA%\PoE2 Trade Sniper, macOS: ~/Library/Application Support/PoE2 Trade Sniper
+// This resolves to: Windows: %APPDATA%\Divinedge, macOS: ~/Library/Application Support/Divinedge
 const getConfigPath = () => join(app.getPath('userData'), 'config.json');
 const getBrowserProfilePath = () => join(app.getPath('userData'), 'browser-profile');
 const soundPlayer = player({});
@@ -34,6 +34,7 @@ const defaultConfig = {
   autoStart: false,
   reconnectDelayMs: 5000,
   fetchDelayMs: 100,
+  teleportCooldownMs: 5000, // 5 second cooldown between teleports
 };
 
 function loadConfig() {
@@ -131,7 +132,7 @@ function updateTrayMenu() {
   ]);
 
   tray.setContextMenu(contextMenu);
-  tray.setToolTip(sniperRunning ? 'PoE2 Sniper - Running' : 'PoE2 Sniper - Stopped');
+  tray.setToolTip(sniperRunning ? 'Divinedge - Running' : 'Divinedge - Stopped');
 }
 
 async function startSniper() {
@@ -204,11 +205,17 @@ async function stopSniper() {
 function createWindow() {
   const config = loadConfig();
 
+  // Remove the default menu bar (File, Edit, View, etc.)
+  Menu.setApplicationMenu(null);
+
   mainWindow = new BrowserWindow({
-    width: 750,
-    height: 850,
-    minWidth: 550,
-    minHeight: 650,
+    width: 900,
+    height: 820,
+    minWidth: 900,
+    minHeight: 820,
+    maxWidth: 900,
+    maxHeight: 820,
+    resizable: false,
     icon: join(__dirname, 'assets', 'icon.ico'),
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
@@ -316,6 +323,27 @@ ipcMain.handle('test-sound', () => {
   return { success: true };
 });
 
+// Economy API proxy to avoid CORS
+ipcMain.handle('fetch-economy', async (event, url) => {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Divinedge/1.0 (contact@divinedge.app)',
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return { success: true, data };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('extract-cookies', async () => {
   if (cookieExtractor) {
     return { error: 'Cookie extraction already in progress' };
@@ -323,7 +351,10 @@ ipcMain.handle('extract-cookies', async () => {
 
   try {
     const { CookieExtractor } = await import('./src/cookie-extractor.js');
-    cookieExtractor = new CookieExtractor();
+    // Use the same browser profile as the sniper so cookies persist
+    cookieExtractor = new CookieExtractor({
+      browserProfilePath: getBrowserProfilePath(),
+    });
 
     cookieExtractor.on('status', (status) => {
       sendToRenderer('cookie-extract-status', { status });
@@ -332,7 +363,7 @@ ipcMain.handle('extract-cookies', async () => {
     const cookies = await cookieExtractor.extract();
     cookieExtractor = null;
 
-    // Auto-save cookies to config
+    // Auto-save cookies to config (as backup, but profile has them now)
     const config = loadConfig();
     config.poesessid = cookies.poesessid;
     if (cookies.cf_clearance) {
@@ -405,38 +436,83 @@ ipcMain.handle('download-update', async () => {
 });
 
 ipcMain.handle('install-update', async () => {
-  // Stop sniper and close browser first
+  const { exec } = await import('child_process');
+  const { promisify } = await import('util');
+  const execAsync = promisify(exec);
+
+  console.log('Starting update installation...');
+
+  // Mark as quitting first
+  app.isQuitting = true;
+
+  // Stop sniper and close browser with timeout
   if (sniper) {
     try {
-      await sniper.stop();
+      // Give sniper 5 seconds to stop gracefully
+      const stopPromise = sniper.stop();
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout')), 5000)
+      );
+      await Promise.race([stopPromise, timeoutPromise]);
+      console.log('Sniper stopped');
     } catch (e) {
-      console.error('Error stopping sniper:', e);
+      console.error('Error stopping sniper:', e.message);
     }
     sniper = null;
   }
 
-  // Mark as quitting
-  app.isQuitting = true;
-
-  // Close all windows
-  const windows = BrowserWindow.getAllWindows();
-  for (const win of windows) {
-    win.destroy();
+  // Cancel any cookie extraction
+  if (cookieExtractor) {
+    try {
+      await cookieExtractor.cancel();
+      console.log('Cookie extractor cancelled');
+    } catch (e) {
+      console.error('Error cancelling cookie extractor:', e);
+    }
+    cookieExtractor = null;
   }
+
+  // Force kill any remaining Chrome/Edge processes spawned by this app
+  // This is Windows-specific but handles the case where browser.close() fails
+  if (process.platform === 'win32') {
+    try {
+      // Kill Chrome processes that might be hanging
+      await execAsync('taskkill /F /IM chrome.exe /T').catch(() => {});
+      await execAsync('taskkill /F /IM msedge.exe /T').catch(() => {});
+      console.log('Force killed browser processes');
+    } catch (e) {
+      // Ignore - processes might not exist
+    }
+  }
+
+  // Unregister global shortcuts
+  globalShortcut.unregisterAll();
 
   // Destroy tray
   if (tray) {
     tray.destroy();
     tray = null;
+    console.log('Tray destroyed');
   }
+
+  // Close all windows
+  const windows = BrowserWindow.getAllWindows();
+  for (const win of windows) {
+    try {
+      win.destroy();
+    } catch (e) {
+      console.error('Error destroying window:', e);
+    }
+  }
+  console.log('Windows destroyed');
 
   // Give time for everything to close
   await new Promise(resolve => setTimeout(resolve, 1000));
 
-  // Force quit and install
-  setImmediate(() => {
-    autoUpdater.quitAndInstall(false, true);
-  });
+  console.log('Calling quitAndInstall...');
+
+  // Force quit and install - use isSilent=false, isForceRunAfter=true
+  autoUpdater.quitAndInstall(false, true);
 });
 
 ipcMain.handle('get-app-version', () => {
@@ -444,7 +520,7 @@ ipcMain.handle('get-app-version', () => {
 });
 
 // App lifecycle
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   createWindow();
   createTray();
   registerHotkeys();

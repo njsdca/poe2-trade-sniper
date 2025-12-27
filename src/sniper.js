@@ -29,6 +29,10 @@ export class TradeSniper extends EventEmitter {
 
     // Browser profile for persistent cookies
     this.browserProfilePath = options.browserProfilePath || null;
+
+    // Teleport cooldown - prevent double teleports
+    this.lastTeleportTime = 0;
+    this.teleportCooldownMs = config.teleportCooldownMs || 5000; // 5 second default
   }
 
   log(level, message, queryId = null) {
@@ -108,6 +112,93 @@ export class TradeSniper extends EventEmitter {
     }
   }
 
+  async fetchItemsDirectly(itemIds, queryId, queryName, page) {
+    const { league } = this.config;
+    const fetchUrl = `https://www.pathofexile.com/api/trade2/fetch/${itemIds.join(',')}?query=${queryId}&realm=poe2`;
+
+    // Make fetch request from page context to use cookies
+    const result = await page.evaluate(async (url) => {
+      try {
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          return { error: true, status: response.status };
+        }
+
+        return await response.json();
+      } catch (err) {
+        return { error: true, message: err.message };
+      }
+    }, fetchUrl);
+
+    if (result.error) {
+      throw new Error(`Fetch failed: ${result.status || result.message}`);
+    }
+
+    // Process items
+    if (result.result && Array.isArray(result.result)) {
+      for (const item of result.result) {
+        const hideoutToken = item?.listing?.hideout_token;
+
+        if (hideoutToken && !this.seenTokens.has(hideoutToken)) {
+          this.seenTokens.add(hideoutToken);
+
+          const startTime = Date.now();
+          const price = item.listing?.price
+            ? `${item.listing.price.amount} ${item.listing.price.currency}`
+            : 'No price';
+          const itemName = item.item?.name || item.item?.typeLine || 'Unknown';
+          const account = item.listing?.account?.name || 'Unknown';
+
+          this.log('INFO', `>>> DIRECT: ${itemName} @ ${price} from ${account} <<<`, queryId);
+
+          this.emit('listing', {
+            queryId,
+            queryName,
+            itemName,
+            price,
+            account,
+            hideoutToken,
+          });
+
+          // Check teleport cooldown
+          const now = Date.now();
+          const timeSinceLastTeleport = now - this.lastTeleportTime;
+          if (timeSinceLastTeleport < this.teleportCooldownMs) {
+            const remaining = Math.ceil((this.teleportCooldownMs - timeSinceLastTeleport) / 1000);
+            this.log('WARN', `SKIPPED teleport (cooldown ${remaining}s remaining) - ${itemName}`, queryId);
+            continue;
+          }
+
+          // Mark teleport time immediately to prevent race conditions
+          this.lastTeleportTime = now;
+
+          // Fire whisper immediately
+          this.triggerWhisper(hideoutToken, page)
+            .then(() => {
+              const elapsed = Date.now() - startTime;
+              this.log('SUCCESS', `TELEPORT in ${elapsed}ms (direct)`, queryId);
+              this.emit('teleport', { queryId, elapsed, itemName, price });
+              this.playSound();
+            })
+            .catch((err) => {
+              this.log('ERROR', `Whisper failed: ${err.message}`, queryId);
+              this.emit('error', { queryId, error: err.message });
+              // Reset cooldown on failure so next listing can try
+              this.lastTeleportTime = 0;
+            });
+        }
+      }
+    }
+  }
+
   getCookies() {
     const { poesessid, cf_clearance } = this.config;
     const cookies = [
@@ -160,14 +251,25 @@ export class TradeSniper extends EventEmitter {
       this.log('WARN', 'WebSocket closed', queryId);
     });
 
-    client.on('Network.webSocketFrameReceived', (params) => {
+    client.on('Network.webSocketFrameReceived', async (params) => {
       try {
         const payload = params.response?.payloadData;
-        if (payload && payload.includes('new')) {
-          this.log('INFO', `WebSocket received new items notification`, queryId);
+        if (!payload) return;
+
+        // Try to parse as JSON to get item IDs directly from WebSocket
+        const data = JSON.parse(payload);
+
+        if (data.new && Array.isArray(data.new) && data.new.length > 0) {
+          const itemIds = data.new;
+          this.log('INFO', `WebSocket: ${itemIds.length} new item(s) - fetching directly...`, queryId);
+
+          // Fetch items directly (faster than waiting for page to do it)
+          this.fetchItemsDirectly(itemIds, queryId, queryName, page).catch(err => {
+            this.log('DEBUG', `Direct fetch failed, falling back to page intercept: ${err.message}`, queryId);
+          });
         }
       } catch (e) {
-        // Ignore parse errors
+        // Not JSON or parse error - ignore, the response interceptor will handle it
       }
     });
 
@@ -242,6 +344,18 @@ export class TradeSniper extends EventEmitter {
                   hideoutToken,
                 });
 
+                // Check teleport cooldown
+                const now = Date.now();
+                const timeSinceLastTeleport = now - this.lastTeleportTime;
+                if (timeSinceLastTeleport < this.teleportCooldownMs) {
+                  const remaining = Math.ceil((this.teleportCooldownMs - timeSinceLastTeleport) / 1000);
+                  this.log('WARN', `SKIPPED teleport (cooldown ${remaining}s remaining) - ${itemName}`, queryId);
+                  continue;
+                }
+
+                // Mark teleport time immediately to prevent race conditions
+                this.lastTeleportTime = now;
+
                 // Fire and forget whisper to minimize latency - use page context for auth
                 this.triggerWhisper(hideoutToken, page)
                   .then(() => {
@@ -253,6 +367,8 @@ export class TradeSniper extends EventEmitter {
                   .catch((err) => {
                     this.log('ERROR', `Whisper failed: ${err.message}`, queryId);
                     this.emit('error', { queryId, error: err.message });
+                    // Reset cooldown on failure so next listing can try
+                    this.lastTeleportTime = 0;
                   });
               }
             }
@@ -286,8 +402,8 @@ export class TradeSniper extends EventEmitter {
         this.log('WARN', 'Live indicator not found, proceeding anyway...', queryId);
       });
 
-      // Additional wait to ensure WebSocket is established
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Short delay to ensure WebSocket is established
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       this.log('SUCCESS', 'Live search connected', queryId);
       this.emit('connected', { queryId, queryName });
@@ -397,7 +513,7 @@ export class TradeSniper extends EventEmitter {
     this.emit('status-change', { running: true });
 
     this.log('INFO', '='.repeat(60));
-    this.log('INFO', 'PoE2 Trade Sniper Starting');
+    this.log('INFO', 'Divinedge Starting');
     this.log('INFO', `League: ${decodeURIComponent(league)}`);
     this.log('INFO', `Monitoring ${queries.length} search(es): ${queries.map(q => q.id || q).join(', ')}`);
     this.log('INFO', '='.repeat(60));

@@ -17,6 +17,9 @@ contextBridge.exposeInMainWorld('api', {
   // Sound
   testSound: () => ipcRenderer.invoke('test-sound'),
 
+  // Economy API
+  fetchEconomy: (url) => ipcRenderer.invoke('fetch-economy', url),
+
   // Updates
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('download-update'),

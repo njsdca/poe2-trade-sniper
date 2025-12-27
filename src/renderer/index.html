@@ -3,145 +3,381 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
-  <title>PoE2 Trade Sniper</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://web.poecdn.com https://*.poecdn.com data:">
+  <title>Divinedge</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>PoE2 Trade Sniper</h1>
-      <div id="status-indicator" class="status stopped">Stopped</div>
+  <div class="app">
+    <!-- Header with controls -->
+    <header class="app-header">
+      <div class="header-left">
+        <svg class="app-icon" viewBox="0 0 512 512" width="28" height="28">
+          <defs>
+            <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" style="stop-color:#dbb978"/>
+              <stop offset="50%" style="stop-color:#c9aa71"/>
+              <stop offset="100%" style="stop-color:#a08050"/>
+            </linearGradient>
+            <radialGradient id="innerGlow" cx="50%" cy="40%" r="50%">
+              <stop offset="0%" style="stop-color:#fff5e0;stop-opacity:0.9"/>
+              <stop offset="60%" style="stop-color:#c9aa71;stop-opacity:0.5"/>
+              <stop offset="100%" style="stop-color:#806030;stop-opacity:0"/>
+            </radialGradient>
+          </defs>
+          <circle cx="256" cy="256" r="240" fill="#1a1a2e"/>
+          <circle cx="256" cy="256" r="220" fill="none" stroke="url(#goldGrad)" stroke-width="12" opacity="0.5"/>
+          <polygon points="256,60 400,256 256,452 112,256" fill="url(#goldGrad)"/>
+          <polygon points="256,60 400,256 256,200" fill="#dbb978" opacity="0.9"/>
+          <polygon points="256,60 112,256 256,200" fill="#c9aa71" opacity="0.8"/>
+          <polygon points="112,256 256,452 256,200" fill="#a08050" opacity="0.9"/>
+          <polygon points="400,256 256,452 256,200" fill="#806030" opacity="0.85"/>
+          <polygon points="256,60 400,256 256,452 112,256" fill="url(#innerGlow)"/>
+        </svg>
+        <h1 class="app-title">Divinedge</h1>
+        <span id="versionBadge" class="version-badge">v0.0.0</span>
+      </div>
+      <div class="header-right">
+        <div id="status-indicator" class="status-badge stopped">
+          <span class="status-dot"></span>
+          <span class="status-text">Stopped</span>
+        </div>
+      </div>
     </header>
 
-    <div class="stats-bar">
-      <div class="stat-item">
-        <span id="statListings" class="stat-value">0</span>
-        <span class="stat-label">Listings</span>
-      </div>
-      <div class="stat-item">
-        <span id="statTeleports" class="stat-value">0</span>
-        <span class="stat-label">Teleports</span>
-      </div>
-      <div class="stat-item">
-        <span id="statAvgTime" class="stat-value">-</span>
-        <span class="stat-label">Avg Time</span>
-      </div>
-      <div class="stat-item">
-        <span id="statUptime" class="stat-value">00:00</span>
-        <span class="stat-label">Uptime</span>
-      </div>
-    </div>
+    <!-- Tab Navigation -->
+    <nav class="tab-nav">
+      <button class="tab-btn active" data-tab="searches">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        Live Searches
+      </button>
+      <button class="tab-btn" data-tab="settings">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72 1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+        </svg>
+        Settings
+      </button>
+      <button class="tab-btn" data-tab="economy">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+        </svg>
+        Economy
+      </button>
+    </nav>
 
-    <section class="settings-section">
-      <div class="section-header" data-section="settings">
-        <h2>Settings</h2>
-        <span class="collapse-icon">▼</span>
-      </div>
-      <div class="section-content" id="settingsContent">
-        <div class="cookie-row">
-          <button id="getCookiesBtn" class="btn btn-primary">Get Cookies from Browser</button>
-          <span id="cookieStatus" class="cookie-status"></span>
-        </div>
-        <div class="form-group">
-          <label for="poesessid">POESESSID:</label>
-          <input type="text" id="poesessid" placeholder="Your session ID from browser cookies">
-        </div>
-        <div class="form-group">
-          <label for="cf_clearance">cf_clearance:</label>
-          <input type="text" id="cf_clearance" placeholder="Cloudflare clearance cookie (optional)">
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label for="league">League:</label>
-            <select id="league">
-              <option value="Fate%20of%20the%20Vaal">Fate of the Vaal</option>
-              <option value="Standard">Standard</option>
-              <option value="Hardcore">Hardcore</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="alertSound">Alert Sound:</label>
-            <select id="alertSound">
-              <option value="alert.wav">Default Alert</option>
-              <option value="chime.wav">Chime</option>
-              <option value="bell.wav">Bell</option>
-              <option value="ping.wav">Ping</option>
-              <option value="none">No Sound</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group checkbox-group">
-            <label>
-              <input type="checkbox" id="soundEnabled" checked>
-              Enable sound notifications
-            </label>
-          </div>
-          <div class="form-group checkbox-group">
-            <label>
-              <input type="checkbox" id="startMinimized">
-              Start minimized to tray
-            </label>
-          </div>
-        </div>
-        <div class="form-group checkbox-group">
-          <label>
-            <input type="checkbox" id="autoStart">
-            Auto-start sniper on launch
-          </label>
-        </div>
-        <button id="saveConfigBtn" class="btn btn-secondary">Save Settings</button>
-        <button id="testSoundBtn" class="btn btn-secondary" style="margin-left: 8px;">Test Sound</button>
-      </div>
-    </section>
+    <!-- Tab Content -->
+    <main class="tab-content">
+      <!-- Live Searches Tab -->
+      <div id="tab-searches" class="tab-panel active">
+        <div class="panel-content searches-layout">
+          <!-- Top Section -->
+          <div class="searches-top">
+            <!-- Control Bar with Start/Stop -->
+            <div class="control-bar">
+              <div class="control-group">
+                <button id="startBtn" class="btn btn-start">
+                  <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                  Start
+                </button>
+                <button id="stopBtn" class="btn btn-stop" disabled>
+                  <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12"/></svg>
+                  Stop
+                </button>
+              </div>
+              <div class="stats-inline">
+                <div class="stat-inline">
+                  <span class="stat-value-sm" id="statListings">0</span>
+                  <span class="stat-label-sm">listings</span>
+                </div>
+                <div class="stat-inline highlight">
+                  <span class="stat-value-sm" id="statTeleports">0</span>
+                  <span class="stat-label-sm">teleports</span>
+                </div>
+                <div class="stat-inline">
+                  <span class="stat-value-sm" id="statUptime">00:00</span>
+                  <span class="stat-label-sm">uptime</span>
+                </div>
+              </div>
+            </div>
 
-    <section class="searches-section">
-      <div class="section-header" data-section="searches">
-        <h2>Searches</h2>
-        <span class="collapse-icon">▼</span>
-      </div>
-      <div class="section-content" id="searchesContent">
-        <div class="add-search">
-          <input type="text" id="searchUrl" placeholder="Paste trade URL or query ID...">
-          <button id="addSearchBtn" class="btn btn-primary">+ Add</button>
-        </div>
-        <div id="searchList" class="search-list">
-          <!-- Searches will be added here -->
-        </div>
-      </div>
-    </section>
+            <!-- Search Management -->
+            <div class="card compact">
+              <div class="card-header">
+                <h2>Trade Searches</h2>
+                <span class="search-count" id="searchCount">0 searches</span>
+              </div>
+              <div class="card-body">
+                <div class="add-search-row">
+                  <input type="text" id="searchUrl" class="input" placeholder="Paste trade URL or query ID...">
+                  <button id="addSearchBtn" class="btn btn-primary">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Add
+                  </button>
+                </div>
+                <div id="searchList" class="search-list">
+                  <div class="empty-state">
+                    <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                    </svg>
+                    <p>No searches added yet</p>
+                    <span>Paste a trade URL above to start monitoring</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
 
-    <section class="controls-section">
-      <button id="startBtn" class="btn btn-success btn-large">Start Sniper</button>
-      <button id="stopBtn" class="btn btn-danger btn-large" disabled>Stop Sniper</button>
-    </section>
-    <div class="hotkey-hint">Hotkeys: Ctrl+Shift+S (Start/Stop) | Ctrl+Shift+H (Show/Hide)</div>
+          <!-- Activity Log (Full) -->
+          <div class="card compact activity-card">
+            <div class="card-header">
+              <h2>Activity Log</h2>
+              <button id="clearLogBtn" class="btn btn-link">Clear</button>
+            </div>
+            <div class="card-body">
+              <div id="logContainer" class="log-container">
+                <div class="log-entry info">[System] Ready. Configure your settings and add searches to begin.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-    <section class="log-section">
-      <div class="log-header">
-        <h2>Activity Log</h2>
-        <button id="clearLogBtn" class="btn btn-secondary btn-small">Clear</button>
+      <!-- Settings Tab -->
+      <div id="tab-settings" class="tab-panel">
+        <div class="panel-content">
+          <!-- Authentication Card -->
+          <div class="card">
+            <div class="card-header">
+              <h2>Authentication</h2>
+            </div>
+            <div class="card-body">
+              <div class="cookie-action">
+                <button id="getCookiesBtn" class="btn btn-primary btn-lg">
+                  <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5"/>
+                    <path d="M8.5 8.5v.01"/><path d="M16 15.5v.01"/><path d="M12 12v.01"/>
+                  </svg>
+                  Get Cookies from Browser
+                </button>
+                <span id="cookieStatus" class="cookie-status"></span>
+              </div>
+              <p class="helper-text">Click to open a browser and automatically extract your session cookies.</p>
+
+              <div class="divider"><span>or enter manually</span></div>
+
+              <div class="form-group">
+                <label for="poesessid">POESESSID</label>
+                <input type="text" id="poesessid" class="input" placeholder="Your session ID from browser cookies">
+              </div>
+              <div class="form-group">
+                <label for="cf_clearance">cf_clearance <span class="label-hint">(optional)</span></label>
+                <input type="text" id="cf_clearance" class="input" placeholder="Cloudflare clearance cookie">
+              </div>
+            </div>
+          </div>
+
+          <!-- Preferences Card -->
+          <div class="card">
+            <div class="card-header">
+              <h2>Preferences</h2>
+            </div>
+            <div class="card-body">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="league">League</label>
+                  <select id="league" class="select">
+                    <option value="Fate%20of%20the%20Vaal">Fate of the Vaal</option>
+                    <option value="Standard">Standard</option>
+                    <option value="Hardcore">Hardcore</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="alertSound">Alert Sound</label>
+                  <div class="input-with-btn">
+                    <select id="alertSound" class="select">
+                      <option value="alert.wav">Default Alert</option>
+                      <option value="chime.wav">Chime</option>
+                      <option value="bell.wav">Bell</option>
+                      <option value="ping.wav">Ping</option>
+                      <option value="none">No Sound</option>
+                    </select>
+                    <button id="testSoundBtn" class="btn btn-secondary btn-icon-only" title="Test Sound">
+                      <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="checkbox-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="soundEnabled" checked>
+                  <span class="checkbox-custom"></span>
+                  Enable sound notifications
+                </label>
+              </div>
+
+              <div class="checkbox-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="startMinimized">
+                  <span class="checkbox-custom"></span>
+                  Start minimized to system tray
+                </label>
+              </div>
+
+              <div class="checkbox-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="autoStart">
+                  <span class="checkbox-custom"></span>
+                  Auto-start sniper on launch
+                </label>
+              </div>
+
+              <div class="action-bar">
+                <button id="saveConfigBtn" class="btn btn-primary">
+                  <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                    <polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+                  </svg>
+                  Save Settings
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div id="logContainer" class="log-container">
-        <div class="log-entry info">Ready. Configure your settings and add searches to begin.</div>
+
+      <!-- Economy Tab -->
+      <div id="tab-economy" class="tab-panel">
+        <div class="economy-layout">
+          <!-- Sidebar -->
+          <aside class="economy-sidebar">
+            <div class="sidebar-section categories-section">
+              <h3>Categories</h3>
+              <nav class="category-nav">
+                <button class="category-btn active" data-category="favorites">
+                  <svg class="category-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                  Favorites
+                  <span id="favoritesCount" class="category-count">0</span>
+                </button>
+                <div class="category-group-label">Currency</div>
+                <button class="category-btn" data-category="currency">Currency</button>
+                <button class="category-btn" data-category="fragments">Fragments</button>
+                <button class="category-btn" data-category="runes">Runes</button>
+                <button class="category-btn" data-category="essences">Essences</button>
+                <button class="category-btn" data-category="soulcores">Soul Cores</button>
+                <button class="category-btn" data-category="talismans">Talismans</button>
+                <button class="category-btn" data-category="gems">Uncut Gems</button>
+                <div class="category-group-label">League Content</div>
+                <button class="category-btn" data-category="expedition">Expedition</button>
+                <button class="category-btn" data-category="breach">Breach</button>
+                <button class="category-btn" data-category="delirium">Delirium</button>
+                <button class="category-btn" data-category="incursion">Incursion</button>
+                <button class="category-btn" data-category="abyss">Abyss</button>
+                <button class="category-btn" data-category="omens">Ritual Omens</button>
+                <button class="category-btn" data-category="reliquary">Reliquary Keys</button>
+                <div class="category-group-label">Uniques</div>
+                <button class="category-btn" data-category="uniques-weapons">Weapons</button>
+                <button class="category-btn" data-category="uniques-armour">Armour</button>
+                <button class="category-btn" data-category="uniques-accessories">Accessories</button>
+                <button class="category-btn" data-category="uniques-flasks">Flasks</button>
+                <button class="category-btn" data-category="uniques-jewels">Jewels</button>
+              </nav>
+            </div>
+            <div class="sidebar-footer">
+              <div class="exchange-rate">
+                <img class="currency-icon-sm" src="https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lNb2RWYWx1ZXMiLCJ3IjoxLCJoIjoxLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/af4036c345/CurrencyModValues.png" alt="Divine">
+                <span class="exchange-label">1 div =</span>
+                <span id="divinePrice" class="exchange-value">--</span>
+                <img class="currency-icon-sm" src="https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lBZGRNb2RUb1JhcmUiLCJ3IjoxLCJoIjoxLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/4ef5836606/CurrencyAddModToRare.png" alt="Exalted">
+              </div>
+              <div class="price-toggle-compact">
+                <button id="priceToggleEx" class="toggle-btn active" data-currency="exalted" title="Show prices in Exalted">
+                  <img src="https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lBZGRNb2RUb1JhcmUiLCJ3IjoxLCJoIjoxLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/4ef5836606/CurrencyAddModToRare.png" alt="ex">
+                </button>
+                <button id="priceToggleDiv" class="toggle-btn" data-currency="divine" title="Show prices in Divine">
+                  <img src="https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lNb2RWYWx1ZXMiLCJ3IjoxLCJoIjoxLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/af4036c345/CurrencyModValues.png" alt="div">
+                </button>
+              </div>
+            </div>
+            <span id="exaltedPrice" style="display:none;">--</span>
+          </aside>
+
+          <!-- Main Content -->
+          <main class="economy-main">
+            <!-- Search Bar -->
+            <div class="economy-search">
+              <div class="search-input-wrapper">
+                <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input type="text" id="economySearch" class="search-input" placeholder="Search items...">
+                <button id="clearSearchBtn" class="clear-search-btn" style="display: none;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+              <button id="refreshEconomyBtn" class="btn btn-secondary">
+                <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                Refresh
+              </button>
+            </div>
+
+            <!-- Loading State -->
+            <div id="economyLoading" class="economy-loading" style="display: none;">
+              <div class="spinner"></div>
+              <span>Loading prices...</span>
+            </div>
+
+            <!-- Error State -->
+            <div id="economyError" class="economy-error" style="display: none;">
+              <svg class="error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <span id="economyErrorMsg">Failed to load prices</span>
+              <button id="retryEconomyBtn" class="btn btn-secondary btn-sm">Retry</button>
+            </div>
+
+            <!-- Items Grid -->
+            <div id="economyItems" class="economy-items">
+              <!-- Items will be populated here -->
+            </div>
+
+            <!-- Empty Favorites State -->
+            <div id="emptyFavorites" class="empty-favorites" style="display: none;">
+              <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+              <p>No favorites yet</p>
+              <span>Click the star on any item to add it to your favorites</span>
+            </div>
+          </main>
+        </div>
       </div>
-    </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div class="footer-left">
+        <span class="hotkey-hint">Ctrl+Shift+S (Start/Stop) • Ctrl+Shift+H (Show/Hide)</span>
+      </div>
+      <div class="footer-right">
+        <div id="updateContainer" class="update-container">
+          <span id="updateStatus" class="update-status"></span>
+          <button id="checkUpdateBtn" class="btn btn-update">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9"/>
+            </svg>
+            Check for Updates
+          </button>
+          <button id="downloadUpdateBtn" class="btn btn-primary btn-sm" style="display: none;">Download</button>
+          <button id="installUpdateBtn" class="btn btn-success btn-sm" style="display: none;">Restart & Install</button>
+          <span id="updateBadge" class="update-badge" style="display: none;">
+            <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+          </span>
+        </div>
+      </div>
+    </footer>
   </div>
 
-  <footer class="footer">
-    <div class="footer-left">
-      <span id="versionBadge" class="version-badge">v0.0.0</span>
-      <a href="https://github.com/njsdca/poe2-trade-sniper" target="_blank">GitHub</a>
-    </div>
-    <div class="footer-right">
-      <span id="updateStatus" class="update-status"></span>
-      <button id="checkUpdateBtn" class="btn btn-small btn-secondary">Check for Updates</button>
-      <button id="downloadUpdateBtn" class="btn btn-small btn-primary" style="display: none;">Download Update</button>
-      <button id="installUpdateBtn" class="btn btn-small btn-success" style="display: none;">Restart & Install</button>
-    </div>
-  </footer>
-
-  <script src="renderer.js"></script>
+  <script type="module" src="renderer.js"></script>
 </body>
 </html>

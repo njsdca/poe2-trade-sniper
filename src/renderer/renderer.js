@@ -1,4 +1,16 @@
-// DOM Elements
+// ========================================
+// Divinedge - Renderer
+// ========================================
+
+import { initEconomy, fetchEconomyData, onEconomyTabActivated, getFavorites } from './economy.js';
+
+// DOM Elements - Header
+const startBtn = document.getElementById('startBtn');
+const stopBtn = document.getElementById('stopBtn');
+const statusIndicator = document.getElementById('status-indicator');
+const versionBadge = document.getElementById('versionBadge');
+
+// DOM Elements - Settings Tab
 const poesessidInput = document.getElementById('poesessid');
 const cfClearanceInput = document.getElementById('cf_clearance');
 const leagueSelect = document.getElementById('league');
@@ -11,22 +23,22 @@ const testSoundBtn = document.getElementById('testSoundBtn');
 const getCookiesBtn = document.getElementById('getCookiesBtn');
 const cookieStatus = document.getElementById('cookieStatus');
 
+// DOM Elements - Searches Tab
 const searchUrlInput = document.getElementById('searchUrl');
 const addSearchBtn = document.getElementById('addSearchBtn');
 const searchList = document.getElementById('searchList');
+const searchCount = document.getElementById('searchCount');
 
-const startBtn = document.getElementById('startBtn');
-const stopBtn = document.getElementById('stopBtn');
-const statusIndicator = document.getElementById('status-indicator');
-
+// DOM Elements - Activity Log (now in Searches tab)
 const logContainer = document.getElementById('logContainer');
 const clearLogBtn = document.getElementById('clearLogBtn');
 
-const versionBadge = document.getElementById('versionBadge');
+// DOM Elements - Footer
 const updateStatus = document.getElementById('updateStatus');
 const checkUpdateBtn = document.getElementById('checkUpdateBtn');
 const downloadUpdateBtn = document.getElementById('downloadUpdateBtn');
 const installUpdateBtn = document.getElementById('installUpdateBtn');
+const updateBadge = document.getElementById('updateBadge');
 
 // Stats elements
 const statListings = document.getElementById('statListings');
@@ -34,11 +46,16 @@ const statTeleports = document.getElementById('statTeleports');
 const statAvgTime = document.getElementById('statAvgTime');
 const statUptime = document.getElementById('statUptime');
 
+// Tab elements
+const tabButtons = document.querySelectorAll('.tab-btn');
+const tabPanels = document.querySelectorAll('.tab-panel');
+
 // State
 let config = {};
 let isRunning = false;
 let isExtractingCookies = false;
 let availableVersion = null;
+let currentTab = 'searches';
 
 // Stats tracking
 let stats = {
@@ -55,7 +72,10 @@ let connectedQueries = new Set();
 // URL parsing regex
 const TRADE_URL_REGEX = /trade2\/search\/poe2\/[^/]+\/([a-zA-Z0-9]+)/;
 
-// Initialize
+// ========================================
+// Initialization
+// ========================================
+
 async function init() {
   config = await window.api.getConfig();
   loadConfigToUI();
@@ -68,15 +88,60 @@ async function init() {
   const version = await window.api.getAppVersion();
   versionBadge.textContent = `v${version}`;
 
+  setupTabNavigation();
   setupEventListeners();
   setupIPCListeners();
-  setupCollapsibleSections();
+
+  // Initialize economy module
+  initEconomy(config);
+
+  // Listen for favorites changes from economy module
+  window.addEventListener('economy-favorites-changed', async (e) => {
+    config.economyFavorites = e.detail.favorites;
+    await window.api.saveConfig(config);
+  });
 
   // Auto-start if configured
   if (config.autoStart && config.poesessid && config.queries?.length > 0) {
     setTimeout(() => startSniper(), 1000);
   }
 }
+
+// ========================================
+// Tab Navigation
+// ========================================
+
+function setupTabNavigation() {
+  tabButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabId = btn.dataset.tab;
+      switchTab(tabId);
+    });
+  });
+}
+
+function switchTab(tabId) {
+  currentTab = tabId;
+
+  // Update tab buttons
+  tabButtons.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tabId);
+  });
+
+  // Update tab panels
+  tabPanels.forEach(panel => {
+    panel.classList.toggle('active', panel.id === `tab-${tabId}`);
+  });
+
+  // Fetch economy data when economy tab is activated
+  if (tabId === 'economy') {
+    onEconomyTabActivated();
+  }
+}
+
+// ========================================
+// Config Management
+// ========================================
 
 function loadConfigToUI() {
   poesessidInput.value = config.poesessid || '';
@@ -101,11 +166,37 @@ function getConfigFromUI() {
   };
 }
 
+async function saveConfig() {
+  config = getConfigFromUI();
+  const success = await window.api.saveConfig(config);
+
+  if (success) {
+    addLogEntry('success', 'Settings saved successfully.');
+  } else {
+    addLogEntry('error', 'Failed to save settings.');
+  }
+}
+
+// ========================================
+// Search Management
+// ========================================
+
 function renderSearchList() {
   const queries = config.queries || [];
 
+  // Update search count
+  searchCount.textContent = `${queries.length} ${queries.length === 1 ? 'search' : 'searches'}`;
+
   if (queries.length === 0) {
-    searchList.innerHTML = '<div class="empty-list">No searches added. Paste a trade URL above to add one.</div>';
+    searchList.innerHTML = `
+      <div class="empty-state">
+        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        <p>No searches added yet</p>
+        <span>Paste a trade URL above to start monitoring</span>
+      </div>
+    `;
     return;
   }
 
@@ -121,7 +212,7 @@ function renderSearchList() {
           <span class="query-id">${id}</span>
           ${name ? `<span class="query-name">(${name})</span>` : ''}
         </div>
-        <button class="remove-btn" data-index="${index}" ${isRunning ? 'disabled' : ''}>&times;</button>
+        <button class="remove-btn" data-index="${index}" ${isRunning ? 'disabled' : ''} title="Remove search">&times;</button>
       </div>
     `;
   }).join('');
@@ -190,57 +281,9 @@ async function removeSearch(index) {
   addLogEntry('info', `Removed search: ${removedId}`);
 }
 
-async function saveConfig() {
-  config = getConfigFromUI();
-  const success = await window.api.saveConfig(config);
-
-  if (success) {
-    addLogEntry('success', 'Settings saved successfully.');
-  } else {
-    addLogEntry('error', 'Failed to save settings.');
-  }
-}
-
-async function testSound() {
-  await window.api.testSound();
-}
-
-async function extractCookies() {
-  if (isExtractingCookies) return;
-
-  isExtractingCookies = true;
-  getCookiesBtn.disabled = true;
-  getCookiesBtn.textContent = 'Extracting...';
-  cookieStatus.textContent = 'Launching browser...';
-  cookieStatus.className = 'cookie-status extracting';
-
-  addLogEntry('info', 'Opening browser to extract cookies. Please log in if prompted.');
-
-  const result = await window.api.extractCookies();
-
-  isExtractingCookies = false;
-  getCookiesBtn.disabled = false;
-  getCookiesBtn.textContent = 'Get Cookies from Browser';
-
-  if (result.success) {
-    // Reload config and update UI
-    config = await window.api.getConfig();
-    loadConfigToUI();
-
-    cookieStatus.textContent = 'Cookies extracted!';
-    cookieStatus.className = 'cookie-status success';
-    addLogEntry('success', 'Cookies extracted and saved successfully!');
-
-    setTimeout(() => {
-      cookieStatus.textContent = '';
-      cookieStatus.className = 'cookie-status';
-    }, 3000);
-  } else {
-    cookieStatus.textContent = result.error || 'Failed';
-    cookieStatus.className = 'cookie-status error';
-    addLogEntry('error', `Cookie extraction failed: ${result.error}`);
-  }
-}
+// ========================================
+// Sniper Control
+// ========================================
 
 async function startSniper() {
   if (isRunning) return;
@@ -250,7 +293,8 @@ async function startSniper() {
   await window.api.saveConfig(config);
 
   if (!config.poesessid) {
-    addLogEntry('error', 'POESESSID is required. Get it from your browser cookies.');
+    addLogEntry('error', 'POESESSID is required. Go to Settings to configure authentication.');
+    switchTab('settings');
     return;
   }
 
@@ -285,8 +329,10 @@ function updateRunningState(running) {
   startBtn.disabled = running;
   stopBtn.disabled = !running;
 
-  statusIndicator.textContent = running ? 'Running' : 'Stopped';
-  statusIndicator.className = `status ${running ? 'running' : 'stopped'}`;
+  // Update status indicator
+  const statusText = statusIndicator.querySelector('.status-text');
+  statusText.textContent = running ? 'Running' : 'Stopped';
+  statusIndicator.className = `status-badge ${running ? 'running' : 'stopped'}`;
 
   // Disable config editing while running
   poesessidInput.disabled = running;
@@ -306,6 +352,10 @@ function updateRunningState(running) {
   }
   renderSearchList();
 }
+
+// ========================================
+// Stats & Uptime
+// ========================================
 
 function updateStats() {
   statListings.textContent = stats.listings;
@@ -350,13 +400,18 @@ function updateUptime() {
   }
 }
 
+// ========================================
+// Activity Log
+// ========================================
+
 function addLogEntry(level, message) {
+  const time = new Date().toLocaleTimeString();
+  const formattedMessage = `[${time}] ${message}`;
+
+  // Add to log container
   const entry = document.createElement('div');
   entry.className = `log-entry ${level}`;
-
-  const time = new Date().toLocaleTimeString();
-  entry.textContent = `[${time}] ${message}`;
-
+  entry.textContent = formattedMessage;
   logContainer.appendChild(entry);
   logContainer.scrollTop = logContainer.scrollHeight;
 
@@ -371,45 +426,63 @@ function clearLog() {
   addLogEntry('info', 'Log cleared.');
 }
 
-function setupCollapsibleSections() {
-  document.querySelectorAll('.section-header').forEach(header => {
-    header.addEventListener('click', () => {
-      const section = header.dataset.section;
-      const content = document.getElementById(`${section}Content`);
-      const icon = header.querySelector('.collapse-icon');
+// ========================================
+// Cookie Extraction
+// ========================================
 
-      if (content.style.display === 'none') {
-        content.style.display = 'block';
-        icon.textContent = '▼';
-      } else {
-        content.style.display = 'none';
-        icon.textContent = '▶';
-      }
-    });
-  });
+async function testSound() {
+  await window.api.testSound();
 }
 
-function setupEventListeners() {
-  saveConfigBtn.addEventListener('click', saveConfig);
-  testSoundBtn.addEventListener('click', testSound);
-  getCookiesBtn.addEventListener('click', extractCookies);
-  addSearchBtn.addEventListener('click', addSearch);
-  startBtn.addEventListener('click', startSniper);
-  stopBtn.addEventListener('click', stopSniper);
-  clearLogBtn.addEventListener('click', clearLog);
+async function extractCookies() {
+  if (isExtractingCookies) return;
 
-  // Update buttons
-  checkUpdateBtn.addEventListener('click', checkForUpdates);
-  downloadUpdateBtn.addEventListener('click', downloadUpdate);
-  installUpdateBtn.addEventListener('click', installUpdate);
+  isExtractingCookies = true;
+  getCookiesBtn.disabled = true;
+  getCookiesBtn.innerHTML = `
+    <span class="spinner"></span>
+    Extracting...
+  `;
+  cookieStatus.textContent = 'Launching browser...';
+  cookieStatus.className = 'cookie-status extracting';
 
-  // Enter key to add search
-  searchUrlInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      addSearch();
-    }
-  });
+  addLogEntry('info', 'Opening browser to extract cookies. Please log in if prompted.');
+
+  const result = await window.api.extractCookies();
+
+  isExtractingCookies = false;
+  getCookiesBtn.disabled = false;
+  getCookiesBtn.innerHTML = `
+    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5"/>
+      <path d="M8.5 8.5v.01"/><path d="M16 15.5v.01"/><path d="M12 12v.01"/>
+    </svg>
+    Get Cookies from Browser
+  `;
+
+  if (result.success) {
+    // Reload config and update UI
+    config = await window.api.getConfig();
+    loadConfigToUI();
+
+    cookieStatus.textContent = 'Cookies extracted!';
+    cookieStatus.className = 'cookie-status success';
+    addLogEntry('success', 'Cookies extracted and saved successfully!');
+
+    setTimeout(() => {
+      cookieStatus.textContent = '';
+      cookieStatus.className = 'cookie-status';
+    }, 3000);
+  } else {
+    cookieStatus.textContent = result.error || 'Failed';
+    cookieStatus.className = 'cookie-status error';
+    addLogEntry('error', `Cookie extraction failed: ${result.error}`);
+  }
 }
+
+// ========================================
+// Updates
+// ========================================
 
 async function checkForUpdates() {
   checkUpdateBtn.disabled = true;
@@ -438,7 +511,7 @@ async function downloadUpdate() {
 
   if (result.error) {
     downloadUpdateBtn.disabled = false;
-    downloadUpdateBtn.textContent = 'Download Update';
+    downloadUpdateBtn.textContent = 'Download';
     updateStatus.textContent = `Download failed: ${result.error}`;
     updateStatus.className = 'update-status error';
     addLogEntry('error', `Download failed: ${result.error}`);
@@ -449,6 +522,43 @@ function installUpdate() {
   addLogEntry('info', 'Installing update and restarting...');
   window.api.installUpdate();
 }
+
+// ========================================
+// Event Listeners
+// ========================================
+
+function setupEventListeners() {
+  // Config buttons
+  saveConfigBtn.addEventListener('click', saveConfig);
+  testSoundBtn.addEventListener('click', testSound);
+  getCookiesBtn.addEventListener('click', extractCookies);
+
+  // Search buttons
+  addSearchBtn.addEventListener('click', addSearch);
+
+  // Control buttons
+  startBtn.addEventListener('click', startSniper);
+  stopBtn.addEventListener('click', stopSniper);
+
+  // Log button
+  clearLogBtn.addEventListener('click', clearLog);
+
+  // Update buttons
+  checkUpdateBtn.addEventListener('click', checkForUpdates);
+  downloadUpdateBtn.addEventListener('click', downloadUpdate);
+  installUpdateBtn.addEventListener('click', installUpdate);
+
+  // Enter key to add search
+  searchUrlInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      addSearch();
+    }
+  });
+}
+
+// ========================================
+// IPC Listeners
+// ========================================
 
 function setupIPCListeners() {
   window.api.onLog((data) => {
@@ -490,7 +600,7 @@ function setupIPCListeners() {
   });
 
   window.api.onCookieExpired(() => {
-    addLogEntry('error', 'COOKIE EXPIRED! Update your cf_clearance cookie.');
+    addLogEntry('error', 'COOKIE EXPIRED! Update your cf_clearance cookie in Settings.');
   });
 
   window.api.onStatusChange((data) => {
@@ -504,10 +614,12 @@ function setupIPCListeners() {
   });
 
   window.api.onUpdateStatus((data) => {
-    // Reset button visibility
+    // Reset button visibility and states
     checkUpdateBtn.style.display = 'none';
     downloadUpdateBtn.style.display = 'none';
     installUpdateBtn.style.display = 'none';
+    updateBadge.style.display = 'none';
+    checkUpdateBtn.classList.remove('has-update');
 
     switch (data.status) {
       case 'checking':
@@ -518,28 +630,33 @@ function setupIPCListeners() {
         availableVersion = data.version;
         updateStatus.textContent = `v${data.version} available`;
         updateStatus.className = 'update-status available';
-        downloadUpdateBtn.style.display = 'inline-block';
+        downloadUpdateBtn.style.display = 'inline-flex';
         downloadUpdateBtn.disabled = false;
-        downloadUpdateBtn.textContent = 'Download Update';
+        downloadUpdateBtn.textContent = 'Download';
+        // Show notification badge and highlight
+        updateBadge.style.display = 'inline-block';
+        checkUpdateBtn.classList.add('has-update');
         addLogEntry('info', `Update available: v${data.version}`);
         break;
       case 'downloading':
         updateStatus.textContent = `Downloading: ${data.percent}%`;
         updateStatus.className = 'update-status checking';
-        downloadUpdateBtn.style.display = 'inline-block';
+        downloadUpdateBtn.style.display = 'inline-flex';
         downloadUpdateBtn.disabled = true;
         downloadUpdateBtn.textContent = `${data.percent}%`;
         break;
       case 'ready':
         updateStatus.textContent = 'Ready to install';
         updateStatus.className = 'update-status available';
-        installUpdateBtn.style.display = 'inline-block';
+        installUpdateBtn.style.display = 'inline-flex';
+        // Show notification badge
+        updateBadge.style.display = 'inline-block';
         addLogEntry('success', 'Update downloaded! Click "Restart & Install" to update.');
         break;
       case 'up-to-date':
         updateStatus.textContent = 'Up to date';
         updateStatus.className = 'update-status';
-        checkUpdateBtn.style.display = 'inline-block';
+        checkUpdateBtn.style.display = 'inline-flex';
         addLogEntry('info', 'You are running the latest version.');
         // Clear the message after 3 seconds
         setTimeout(() => {
@@ -551,7 +668,7 @@ function setupIPCListeners() {
       case 'error':
         updateStatus.textContent = '';
         updateStatus.className = 'update-status';
-        checkUpdateBtn.style.display = 'inline-block';
+        checkUpdateBtn.style.display = 'inline-flex';
         break;
     }
   });
@@ -568,5 +685,8 @@ function setupIPCListeners() {
   });
 }
 
+// ========================================
 // Start the app
+// ========================================
+
 init();
