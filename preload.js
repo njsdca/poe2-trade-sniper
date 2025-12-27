@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('api', {
   // Config
   getConfig: () => ipcRenderer.invoke('get-config'),
   saveConfig: (config) => ipcRenderer.invoke('save-config', config),
+  checkSetupComplete: () => ipcRenderer.invoke('check-setup-complete'),
 
   // Sniper control
   startSniper: () => ipcRenderer.invoke('start-sniper'),

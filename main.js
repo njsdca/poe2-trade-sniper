@@ -300,6 +300,15 @@ ipcMain.handle('get-config', () => {
   return loadConfig();
 });
 
+ipcMain.handle('check-setup-complete', () => {
+  const config = loadConfig();
+  return {
+    complete: Boolean(config.poesessid) && config.queries?.length > 0,
+    hasAuth: Boolean(config.poesessid),
+    hasSearches: config.queries?.length > 0
+  };
+});
+
 ipcMain.handle('save-config', (event, config) => {
   return saveConfig(config);
 });

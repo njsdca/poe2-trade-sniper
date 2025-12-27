@@ -4,6 +4,11 @@
 
 import { initEconomy, fetchEconomyData, onEconomyTabActivated, getFavorites } from './economy.js';
 
+// DOM Elements - Login Overlay
+const loginOverlay = document.getElementById('loginOverlay');
+const loginStatus = document.getElementById('loginStatus');
+const loginStatusText = document.getElementById('loginStatusText');
+
 // DOM Elements - Header
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
@@ -11,8 +16,6 @@ const statusIndicator = document.getElementById('status-indicator');
 const versionBadge = document.getElementById('versionBadge');
 
 // DOM Elements - Settings Tab
-const poesessidInput = document.getElementById('poesessid');
-const cfClearanceInput = document.getElementById('cf_clearance');
 const leagueSelect = document.getElementById('league');
 const alertSoundSelect = document.getElementById('alertSound');
 const soundEnabledCheckbox = document.getElementById('soundEnabled');
@@ -20,8 +23,6 @@ const startMinimizedCheckbox = document.getElementById('startMinimized');
 const autoStartCheckbox = document.getElementById('autoStart');
 const saveConfigBtn = document.getElementById('saveConfigBtn');
 const testSoundBtn = document.getElementById('testSoundBtn');
-const getCookiesBtn = document.getElementById('getCookiesBtn');
-const cookieStatus = document.getElementById('cookieStatus');
 
 // DOM Elements - Searches Tab
 const searchUrlInput = document.getElementById('searchUrl');
@@ -52,9 +53,9 @@ const tabPanels = document.querySelectorAll('.tab-panel');
 // State
 let config = {};
 let isRunning = false;
-let isExtractingCookies = false;
 let availableVersion = null;
 let currentTab = 'searches';
+
 
 // Stats tracking
 let stats = {
@@ -77,6 +78,7 @@ const TRADE_URL_REGEX = /trade2\/search\/poe2\/[^/]+\/([a-zA-Z0-9]+)/;
 
 async function init() {
   config = await window.api.getConfig();
+
   loadConfigToUI();
   renderSearchList();
 
@@ -91,8 +93,11 @@ async function init() {
   setupEventListeners();
   setupIPCListeners();
 
-  // Initialize economy module
+  // Initialize economy module with saved favorites
   initEconomy(config);
+
+  // Start login process immediately
+  startLogin();
 
   // Listen for favorites changes from economy module
   window.addEventListener('economy-favorites-changed', async (e) => {
@@ -139,12 +144,45 @@ function switchTab(tabId) {
 }
 
 // ========================================
+// Login Flow
+// ========================================
+
+async function startLogin() {
+  // Show login overlay
+  loginOverlay.classList.remove('hidden');
+  loginStatusText.textContent = 'Opening browser...';
+  loginStatus.className = 'login-status';
+
+  // Start cookie extraction automatically
+  const result = await window.api.extractCookies();
+
+  if (result.success) {
+    // Reload config with new cookies
+    config = await window.api.getConfig();
+    loadConfigToUI();
+
+    loginStatusText.textContent = 'Connected! Loading app...';
+    loginStatus.className = 'login-status success';
+
+    // Hide overlay after brief success message
+    setTimeout(() => {
+      hideLoginOverlay();
+    }, 1000);
+  } else {
+    loginStatusText.textContent = result.error || 'Connection failed. Please restart the app.';
+    loginStatus.className = 'login-status error';
+  }
+}
+
+function hideLoginOverlay() {
+  loginOverlay.classList.add('hidden');
+}
+
+// ========================================
 // Config Management
 // ========================================
 
 function loadConfigToUI() {
-  poesessidInput.value = config.poesessid || '';
-  cfClearanceInput.value = config.cf_clearance || '';
   leagueSelect.value = config.league || 'Fate%20of%20the%20Vaal';
   alertSoundSelect.value = config.soundFile || 'alert.wav';
   soundEnabledCheckbox.checked = config.soundEnabled !== false;
@@ -155,8 +193,7 @@ function loadConfigToUI() {
 function getConfigFromUI() {
   return {
     ...config,
-    poesessid: poesessidInput.value.trim(),
-    cf_clearance: cfClearanceInput.value.trim(),
+    // poesessid and cf_clearance are now managed by cookie extractor only
     league: leagueSelect.value,
     soundFile: alertSoundSelect.value,
     soundEnabled: soundEnabledCheckbox.checked,
@@ -334,14 +371,11 @@ function updateRunningState(running) {
   statusIndicator.className = `status-badge ${running ? 'running' : 'stopped'}`;
 
   // Disable config editing while running
-  poesessidInput.disabled = running;
-  cfClearanceInput.disabled = running;
   leagueSelect.disabled = running;
   alertSoundSelect.disabled = running;
   saveConfigBtn.disabled = running;
   addSearchBtn.disabled = running;
   searchUrlInput.disabled = running;
-  getCookiesBtn.disabled = running;
   startMinimizedCheckbox.disabled = running;
   autoStartCheckbox.disabled = running;
 
@@ -419,57 +453,11 @@ function clearLog() {
 }
 
 // ========================================
-// Cookie Extraction
+// Utilities
 // ========================================
 
 async function testSound() {
   await window.api.testSound();
-}
-
-async function extractCookies() {
-  if (isExtractingCookies) return;
-
-  isExtractingCookies = true;
-  getCookiesBtn.disabled = true;
-  getCookiesBtn.innerHTML = `
-    <span class="spinner"></span>
-    Extracting...
-  `;
-  cookieStatus.textContent = 'Launching browser...';
-  cookieStatus.className = 'cookie-status extracting';
-
-  addLogEntry('info', 'Opening browser to extract cookies. Please log in if prompted.');
-
-  const result = await window.api.extractCookies();
-
-  isExtractingCookies = false;
-  getCookiesBtn.disabled = false;
-  getCookiesBtn.innerHTML = `
-    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5"/>
-      <path d="M8.5 8.5v.01"/><path d="M16 15.5v.01"/><path d="M12 12v.01"/>
-    </svg>
-    Get Cookies from Browser
-  `;
-
-  if (result.success) {
-    // Reload config and update UI
-    config = await window.api.getConfig();
-    loadConfigToUI();
-
-    cookieStatus.textContent = 'Cookies extracted!';
-    cookieStatus.className = 'cookie-status success';
-    addLogEntry('success', 'Cookies extracted and saved successfully!');
-
-    setTimeout(() => {
-      cookieStatus.textContent = '';
-      cookieStatus.className = 'cookie-status';
-    }, 3000);
-  } else {
-    cookieStatus.textContent = result.error || 'Failed';
-    cookieStatus.className = 'cookie-status error';
-    addLogEntry('error', `Cookie extraction failed: ${result.error}`);
-  }
 }
 
 // ========================================
@@ -523,7 +511,6 @@ function setupEventListeners() {
   // Config buttons
   saveConfigBtn.addEventListener('click', saveConfig);
   testSoundBtn.addEventListener('click', testSound);
-  getCookiesBtn.addEventListener('click', extractCookies);
 
   // Search buttons
   addSearchBtn.addEventListener('click', addSearch);
@@ -600,8 +587,8 @@ function setupIPCListeners() {
   });
 
   window.api.onCookieExtractStatus((data) => {
-    if (data.status) {
-      cookieStatus.textContent = data.status;
+    if (data.status && loginStatusText) {
+      loginStatusText.textContent = data.status;
     }
   });
 
