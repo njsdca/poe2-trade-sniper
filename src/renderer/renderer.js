@@ -3,6 +3,7 @@
 // ========================================
 
 import { initEconomy, fetchEconomyData, onEconomyTabActivated, getFavorites } from './economy.js';
+import { playSound, testSound as testSoundEffect } from './sounds.js';
 
 // DOM Elements - Login Overlay
 const loginOverlay = document.getElementById('loginOverlay');
@@ -456,8 +457,9 @@ function clearLog() {
 // Utilities
 // ========================================
 
-async function testSound() {
-  await window.api.testSound();
+function testSound() {
+  const soundFile = alertSoundSelect.value;
+  testSoundEffect(soundFile);
 }
 
 // ========================================
@@ -549,6 +551,11 @@ function setupIPCListeners() {
     stats.listings++;
     updateStats();
     addLogEntry('listing', `NEW: ${data.itemName} @ ${data.price} from ${data.account}`);
+
+    // Play alert sound for new listings
+    if (config.soundEnabled && config.soundFile !== 'none') {
+      playSound(config.soundFile || 'alert.wav');
+    }
   });
 
   window.api.onTeleport((data) => {

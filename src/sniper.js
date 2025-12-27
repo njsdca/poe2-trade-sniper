@@ -69,46 +69,61 @@ export class TradeSniper extends EventEmitter {
 
   async triggerWhisper(hideoutToken, page) {
     try {
-      // Make the whisper request from within the page context to use the same session cookies
-      const result = await page.evaluate(async (token) => {
-        try {
-          const response = await fetch('https://www.pathofexile.com/api/trade2/whisper', {
-            method: 'POST',
-            headers: {
-              'Accept': '*/*',
-              'Content-Type': 'application/json',
-              'X-Requested-With': 'XMLHttpRequest',
-            },
-            body: JSON.stringify({ token }),
-            credentials: 'include', // Include cookies
-          });
+      // Use direct Node.js fetch for faster response (bypasses Puppeteer overhead)
+      const cookieString = this.getCookieString();
 
-          if (!response.ok) {
-            const text = await response.text();
-            return { error: true, status: response.status, message: text };
-          }
+      const response = await fetch('https://www.pathofexile.com/api/trade2/whisper', {
+        method: 'POST',
+        headers: {
+          'Accept': '*/*',
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Cookie': cookieString,
+          'Origin': 'https://www.pathofexile.com',
+          'Referer': 'https://www.pathofexile.com/trade2/search/poe2/Standard',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+        body: JSON.stringify({ token: hideoutToken }),
+      });
 
-          const data = await response.json();
-          return { success: true, data };
-        } catch (err) {
-          return { error: true, message: err.message };
-        }
-      }, hideoutToken);
-
-      if (result.error) {
-        if (result.status === 403) {
+      if (!response.ok) {
+        const text = await response.text();
+        if (response.status === 403) {
           this.log('ERROR', '!!! COOKIE EXPIRED - UPDATE cf_clearance !!!');
           this.emit('cookie-expired');
           this.playSound();
           setTimeout(() => this.playSound(), 500);
           setTimeout(() => this.playSound(), 1000);
         }
-        throw new Error(`Whisper failed: ${result.status || ''} - ${result.message}`);
+        throw new Error(`Whisper failed: ${response.status} - ${text}`);
       }
 
-      return result.data;
+      const data = await response.json();
+      return data;
     } catch (err) {
       throw err;
+    }
+  }
+
+  async warmupConnections() {
+    // Pre-warm HTTP connections to reduce latency on first real request
+    try {
+      const cookieString = this.getCookieString();
+
+      // Make a lightweight request to establish keep-alive connection
+      const warmupStart = Date.now();
+      await fetch('https://www.pathofexile.com/api/trade2/data/leagues', {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Cookie': cookieString,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+      });
+      const warmupTime = Date.now() - warmupStart;
+      this.log('INFO', `Connection warmed up in ${warmupTime}ms`);
+    } catch (err) {
+      this.log('WARN', `Connection warmup failed: ${err.message}`);
     }
   }
 
@@ -562,6 +577,10 @@ export class TradeSniper extends EventEmitter {
 
       // With persistent browser profile, cookies should be saved from previous sessions
       // Just start the searches - if login is needed, user will see it in the browser window
+
+      // Warm up HTTP connections for faster first response
+      await this.warmupConnections();
+
       this.log('INFO', 'Starting searches (log in via browser window if prompted)...');
 
       // Start all queries - they share the browser session
