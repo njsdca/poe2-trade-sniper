@@ -57,7 +57,7 @@ export class TradeSniper extends EventEmitter {
   }
 
   playSound() {
-    if (!this.config.soundEnabled || this.config.soundFile === 'none') return;
+    if (!this.config.soundEnabled) return;
 
     if (!existsSync(this.soundFilePath)) {
       process.stdout.write('\x07');

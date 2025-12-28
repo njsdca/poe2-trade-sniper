@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld('api', {
   fetchEconomy: (url) => ipcRenderer.invoke('fetch-economy', url),
   fetchItemHistory: (itemId, logCount) => ipcRenderer.invoke('fetch-item-history', itemId, logCount),
 
+  // Import/Export
+  exportSearches: (searches) => ipcRenderer.invoke('export-searches', searches),
+  importSearches: () => ipcRenderer.invoke('import-searches'),
+
   // Updates
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('download-update'),

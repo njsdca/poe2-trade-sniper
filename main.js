@@ -29,7 +29,6 @@ const defaultConfig = {
   league: 'Fate%20of%20the%20Vaal',
   queries: [],
   soundEnabled: true,
-  soundFile: 'chime.wav',
   startMinimized: false,
   autoStart: false,
   reconnectDelayMs: 5000,
@@ -75,26 +74,16 @@ function showNotification(title, body) {
 
 function playAlertSound() {
   const config = loadConfig();
-  if (!config.soundEnabled || config.soundFile === 'none') return;
+  if (!config.soundEnabled) return;
 
-  const soundPath = join(__dirname, config.soundFile);
-  if (!existsSync(soundPath)) {
-    // Try default alert.wav
-    const defaultPath = join(__dirname, 'alert.wav');
-    if (existsSync(defaultPath)) {
-      soundPlayer.play(defaultPath, (err) => {
-        if (err) console.error('Failed to play sound:', err);
-      });
-    } else {
-      // Terminal bell as fallback
-      process.stdout.write('\x07');
-    }
-    return;
+  // Sound is primarily handled by renderer's Web Audio API
+  // This is a fallback for system notifications
+  const soundPath = join(__dirname, 'alert.wav');
+  if (existsSync(soundPath)) {
+    soundPlayer.play(soundPath, (err) => {
+      if (err) console.error('Failed to play sound:', err);
+    });
   }
-
-  soundPlayer.play(soundPath, (err) => {
-    if (err) console.error('Failed to play sound:', err);
-  });
 }
 
 function updateTrayMenu() {
@@ -144,7 +133,7 @@ async function startSniper() {
   const { TradeSniper } = await import('./src/sniper.js');
 
   sniper = new TradeSniper(config, {
-    soundFilePath: join(__dirname, config.soundFile || 'alert.wav'),
+    soundFilePath: join(__dirname, 'alert.wav'),
     browserProfilePath: getBrowserProfilePath(),
   });
 
@@ -317,6 +306,72 @@ ipcMain.handle('check-setup-complete', () => {
 
 ipcMain.handle('save-config', (event, config) => {
   return saveConfig(config);
+});
+
+// Export searches to a JSON file
+ipcMain.handle('export-searches', async (event, searches) => {
+  try {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export Searches',
+      defaultPath: 'divinge-searches.json',
+      filters: [
+        { name: 'JSON Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+
+    if (result.canceled || !result.filePath) {
+      return { success: false, canceled: true };
+    }
+
+    const exportData = {
+      version: app.getVersion(),
+      exportedAt: new Date().toISOString(),
+      searches: searches
+    };
+
+    writeFileSync(result.filePath, JSON.stringify(exportData, null, 2));
+    return { success: true, filePath: result.filePath };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Import searches from a JSON file
+ipcMain.handle('import-searches', async () => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Import Searches',
+      filters: [
+        { name: 'JSON Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+
+    const fileContent = readFileSync(result.filePaths[0], 'utf-8');
+    const importData = JSON.parse(fileContent);
+
+    // Validate the import data
+    if (!importData.searches || !Array.isArray(importData.searches)) {
+      return { success: false, error: 'Invalid file format: missing searches array' };
+    }
+
+    // Validate each search has required fields
+    for (const search of importData.searches) {
+      if (!search.id) {
+        return { success: false, error: 'Invalid file format: search missing id' };
+      }
+    }
+
+    return { success: true, searches: importData.searches, version: importData.version };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 });
 
 ipcMain.handle('start-sniper', async () => {

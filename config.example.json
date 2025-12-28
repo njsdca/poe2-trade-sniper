@@ -6,7 +6,6 @@
     "YOUR_QUERY_ID_HERE"
   ],
   "soundEnabled": true,
-  "soundFile": "chime.wav",
   "reconnectDelayMs": 5000,
   "fetchDelayMs": 100
 }

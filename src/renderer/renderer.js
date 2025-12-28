@@ -19,7 +19,6 @@ const versionBadge = document.getElementById('versionBadge');
 
 // DOM Elements - Settings Tab
 const leagueSelect = document.getElementById('league');
-const alertSoundSelect = document.getElementById('alertSound');
 const soundEnabledCheckbox = document.getElementById('soundEnabled');
 const startMinimizedCheckbox = document.getElementById('startMinimized');
 const autoStartCheckbox = document.getElementById('autoStart');
@@ -36,6 +35,8 @@ const confirmSearchBtn = document.getElementById('confirmSearchBtn');
 const cancelSearchBtn = document.getElementById('cancelSearchBtn');
 const searchList = document.getElementById('searchList');
 const searchCount = document.getElementById('searchCount');
+const importSearchesBtn = document.getElementById('importSearchesBtn');
+const exportSearchesBtn = document.getElementById('exportSearchesBtn');
 
 // Pending search state (for two-step add flow)
 let pendingQueryId = null;
@@ -55,6 +56,15 @@ const updateBadge = document.getElementById('updateBadge');
 const statListings = document.getElementById('statListings');
 const statTeleports = document.getElementById('statTeleports');
 const statUptime = document.getElementById('statUptime');
+
+// Analytics elements
+const analyticsSessionDuration = document.getElementById('analyticsSessionDuration');
+const analyticsTotalHits = document.getElementById('analyticsTotalHits');
+const analyticsHitsPerHour = document.getElementById('analyticsHitsPerHour');
+const analyticsTeleports = document.getElementById('analyticsTeleports');
+const analyticsSuccessRate = document.getElementById('analyticsSuccessRate');
+const hitsBySearchList = document.getElementById('hitsBySearchList');
+const activityTimeline = document.getElementById('activityTimeline');
 
 // Tab elements
 const tabButtons = document.querySelectorAll('.tab-btn');
@@ -76,6 +86,13 @@ let stats = {
   startTime: null,
 };
 let uptimeInterval = null;
+
+// Analytics tracking
+let analytics = {
+  hitsBySearch: {},      // { queryId: count }
+  hitTimeline: [],       // [{ timestamp, queryId, queryName, itemName, price }]
+  sessionStart: null,
+};
 
 // Connected queries tracking
 let connectedQueries = new Set();
@@ -152,6 +169,11 @@ function switchTab(tabId) {
   if (tabId === 'economy') {
     onEconomyTabActivated();
   }
+
+  // Update analytics when analytics tab is activated
+  if (tabId === 'analytics') {
+    updateAnalytics();
+  }
 }
 
 // ========================================
@@ -195,7 +217,6 @@ function hideLoginOverlay() {
 
 function loadConfigToUI() {
   leagueSelect.value = config.league || 'Fate%20of%20the%20Vaal';
-  alertSoundSelect.value = config.soundFile || 'chime.wav';
   soundEnabledCheckbox.checked = config.soundEnabled !== false;
   startMinimizedCheckbox.checked = config.startMinimized === true;
   autoStartCheckbox.checked = config.autoStart === true;
@@ -206,7 +227,6 @@ function getConfigFromUI() {
     ...config,
     // poesessid and cf_clearance are now managed by cookie extractor only
     league: leagueSelect.value,
-    soundFile: alertSoundSelect.value,
     soundEnabled: soundEnabledCheckbox.checked,
     startMinimized: startMinimizedCheckbox.checked,
     autoStart: autoStartCheckbox.checked,
@@ -251,6 +271,7 @@ function renderSearchList() {
     const id = typeof query === 'string' ? query : query.id;
     const name = typeof query === 'string' ? '' : (query.name || '');
     const isConnected = connectedQueries.has(id);
+    const hitCount = analytics.hitsBySearch[id] || 0;
 
     return `
       <div class="search-item" data-index="${index}" data-query-id="${id}">
@@ -262,6 +283,7 @@ function renderSearchList() {
           }
         </div>
         <div class="search-actions">
+          ${hitCount > 0 ? `<span class="hit-count" title="${hitCount} hits this session">${hitCount}</span>` : ''}
           <button class="copy-btn" data-query-id="${id}" title="Copy trade URL">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -386,6 +408,68 @@ async function removeSearch(index) {
   addLogEntry('info', `Removed search: ${removedId}`);
 }
 
+async function exportSearches() {
+  const queries = config.queries || [];
+  if (queries.length === 0) {
+    addLogEntry('warn', 'No searches to export');
+    return;
+  }
+
+  const result = await window.api.exportSearches(queries);
+
+  if (result.canceled) {
+    return;
+  }
+
+  if (result.success) {
+    addLogEntry('success', `Exported ${queries.length} search(es) to file`);
+  } else {
+    addLogEntry('error', `Export failed: ${result.error}`);
+  }
+}
+
+async function importSearches() {
+  const result = await window.api.importSearches();
+
+  if (result.canceled) {
+    return;
+  }
+
+  if (!result.success) {
+    addLogEntry('error', `Import failed: ${result.error}`);
+    return;
+  }
+
+  const importedSearches = result.searches;
+  const existingQueries = config.queries || [];
+
+  // Merge imports - skip duplicates by ID
+  const existingIds = new Set(existingQueries.map(q => typeof q === 'string' ? q : q.id));
+  let addedCount = 0;
+  let skippedCount = 0;
+
+  for (const search of importedSearches) {
+    const searchId = typeof search === 'string' ? search : search.id;
+    if (!existingIds.has(searchId)) {
+      existingQueries.push(search);
+      existingIds.add(searchId);
+      addedCount++;
+    } else {
+      skippedCount++;
+    }
+  }
+
+  config.queries = existingQueries;
+  await window.api.saveConfig(config);
+  renderSearchList();
+
+  if (skippedCount > 0) {
+    addLogEntry('success', `Imported ${addedCount} search(es), skipped ${skippedCount} duplicate(s)`);
+  } else {
+    addLogEntry('success', `Imported ${addedCount} search(es)`);
+  }
+}
+
 // ========================================
 // Sniper Control
 // ========================================
@@ -408,8 +492,9 @@ async function startSniper() {
     return;
   }
 
-  // Reset stats
+  // Reset stats and analytics
   stats = { listings: 0, teleports: 0, totalTime: 0, startTime: Date.now() };
+  analytics = { hitsBySearch: {}, hitTimeline: [], sessionStart: Date.now() };
   connectedQueries.clear();
   updateStats();
   startUptimeTimer();
@@ -471,7 +556,6 @@ function updateRunningState(running, paused = false) {
 
   // Disable config editing while running
   leagueSelect.disabled = running;
-  alertSoundSelect.disabled = running;
   saveConfigBtn.disabled = running;
   addSearchBtn.disabled = running;
   searchUrlInput.disabled = running;
@@ -535,6 +619,110 @@ function updateUptime() {
 }
 
 // ========================================
+// Analytics
+// ========================================
+
+function updateAnalytics() {
+  // Session duration
+  if (stats.startTime) {
+    const elapsed = Math.floor((Date.now() - stats.startTime) / 1000);
+    const hours = Math.floor(elapsed / 3600);
+    const minutes = Math.floor((elapsed % 3600) / 60);
+    const seconds = elapsed % 60;
+    analyticsSessionDuration.textContent = `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  } else {
+    analyticsSessionDuration.textContent = '0:00:00';
+  }
+
+  // Total hits
+  const totalHits = Object.values(analytics.hitsBySearch).reduce((sum, count) => sum + count, 0);
+  analyticsTotalHits.textContent = totalHits;
+
+  // Hits per hour
+  if (stats.startTime) {
+    const hoursElapsed = (Date.now() - stats.startTime) / (1000 * 60 * 60);
+    const hitsPerHour = hoursElapsed > 0 ? (totalHits / hoursElapsed).toFixed(1) : '0';
+    analyticsHitsPerHour.textContent = hitsPerHour;
+  } else {
+    analyticsHitsPerHour.textContent = '0';
+  }
+
+  // Teleports
+  analyticsTeleports.textContent = stats.teleports;
+
+  // Success rate (teleports / hits)
+  const successRate = totalHits > 0 ? Math.round((stats.teleports / totalHits) * 100) : 0;
+  analyticsSuccessRate.textContent = `${successRate}%`;
+
+  // Hits by search list
+  renderHitsBySearch();
+
+  // Activity timeline
+  renderActivityTimeline();
+}
+
+function renderHitsBySearch() {
+  const queries = config.queries || [];
+  const hitsEntries = Object.entries(analytics.hitsBySearch)
+    .sort((a, b) => b[1] - a[1]); // Sort by hit count descending
+
+  if (hitsEntries.length === 0) {
+    hitsBySearchList.innerHTML = '<div class="empty-state-small">No hits recorded yet</div>';
+    return;
+  }
+
+  // Calculate total for percentages
+  const totalHits = hitsEntries.reduce((sum, [, count]) => sum + count, 0);
+  const maxHits = hitsEntries[0]?.[1] || 1;
+
+  hitsBySearchList.innerHTML = hitsEntries.map(([queryId, count]) => {
+    // Find query name
+    const query = queries.find(q => (typeof q === 'string' ? q : q.id) === queryId);
+    const name = query && typeof query !== 'string' && query.name ? query.name : queryId;
+    const percentage = ((count / totalHits) * 100).toFixed(1);
+    const barWidth = (count / maxHits) * 100;
+
+    return `
+      <div class="hits-by-search-item">
+        <div class="hits-search-info">
+          <span class="hits-search-name">${name}</span>
+          <span class="hits-search-count">${count} hits (${percentage}%)</span>
+        </div>
+        <div class="hits-bar-container">
+          <div class="hits-bar" style="width: ${barWidth}%"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderActivityTimeline() {
+  // Get hits from last 15 minutes
+  const fifteenMinAgo = Date.now() - (15 * 60 * 1000);
+  const recentHits = analytics.hitTimeline
+    .filter(h => h.timestamp > fifteenMinAgo)
+    .slice(-20) // Show last 20 items max
+    .reverse(); // Most recent first
+
+  if (recentHits.length === 0) {
+    activityTimeline.innerHTML = '<div class="empty-state-small">No recent activity</div>';
+    return;
+  }
+
+  activityTimeline.innerHTML = recentHits.map(hit => {
+    const time = new Date(hit.timestamp).toLocaleTimeString();
+    return `
+      <div class="timeline-item">
+        <span class="timeline-time">${time}</span>
+        <span class="timeline-search">${hit.queryName}</span>
+        <span class="timeline-item-name">${hit.itemName}</span>
+        <span class="timeline-price">${hit.price}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+// ========================================
 // Activity Log
 // ========================================
 
@@ -565,8 +753,7 @@ function clearLog() {
 // ========================================
 
 function testSound() {
-  const soundFile = alertSoundSelect.value;
-  testSoundEffect(soundFile);
+  testSoundEffect();
 }
 
 // ========================================
@@ -623,6 +810,8 @@ function setupEventListeners() {
 
   // Search buttons
   addSearchBtn.addEventListener('click', addSearch);
+  importSearchesBtn.addEventListener('click', importSearches);
+  exportSearchesBtn.addEventListener('click', exportSearches);
 
   // Control buttons
   startBtn.addEventListener('click', startSniper);
@@ -674,9 +863,33 @@ function setupIPCListeners() {
     updateStats();
     addLogEntry('listing', `NEW: ${data.itemName} @ ${data.price} from ${data.account}`);
 
+    // Track analytics
+    const queryId = data.queryId;
+    if (queryId) {
+      // Increment hit count for this search
+      analytics.hitsBySearch[queryId] = (analytics.hitsBySearch[queryId] || 0) + 1;
+
+      // Add to timeline
+      analytics.hitTimeline.push({
+        timestamp: Date.now(),
+        queryId: queryId,
+        queryName: data.queryName || queryId,
+        itemName: data.itemName,
+        price: data.price,
+        account: data.account
+      });
+
+      // Keep timeline to last 24 hours max (prevent memory bloat)
+      const dayAgo = Date.now() - (24 * 60 * 60 * 1000);
+      analytics.hitTimeline = analytics.hitTimeline.filter(h => h.timestamp > dayAgo);
+
+      // Update search list to show new hit count
+      renderSearchList();
+    }
+
     // Play alert sound for new listings
-    if (config.soundEnabled && config.soundFile !== 'none') {
-      playSound(config.soundFile || 'chime.wav');
+    if (config.soundEnabled) {
+      playSound();
     }
   });
 

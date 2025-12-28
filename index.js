@@ -36,7 +36,6 @@ const {
   league,
   queries,
   soundEnabled = true,
-  soundFile = 'chime.wav',
 } = config;
 
 // ============================================================================
@@ -54,7 +53,7 @@ function log(level, message, queryId = null) {
 // ============================================================================
 
 const soundPlayer = player({});
-const soundFilePath = join(__dirname, soundFile);
+const soundFilePath = join(__dirname, 'alert.wav');
 
 function playSound() {
   if (!soundEnabled) return;

@@ -75,6 +75,12 @@
         </svg>
         Live Searches
       </button>
+      <button class="tab-btn" data-tab="analytics">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/>
+        </svg>
+        Analytics
+      </button>
       <button class="tab-btn" data-tab="settings">
         <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72 1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
@@ -132,7 +138,15 @@
             <div class="card compact">
               <div class="card-header">
                 <h2>Trade Searches</h2>
-                <span class="search-count" id="searchCount">0 searches</span>
+                <div class="search-header-actions">
+                  <span class="search-count" id="searchCount">0 searches</span>
+                  <button id="importSearchesBtn" class="btn-icon-small" title="Import searches">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  </button>
+                  <button id="exportSearchesBtn" class="btn-icon-small" title="Export searches">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  </button>
+                </div>
               </div>
               <div class="card-body">
                 <div class="add-search-row" id="urlInputRow">
@@ -178,6 +192,64 @@
         </div>
       </div>
 
+      <!-- Analytics Tab -->
+      <div id="tab-analytics" class="tab-panel">
+        <div class="panel-content">
+          <!-- Session Stats -->
+          <div class="card">
+            <div class="card-header">
+              <h2>Session Overview</h2>
+              <span class="session-duration" id="analyticsSessionDuration">0:00:00</span>
+            </div>
+            <div class="card-body">
+              <div class="analytics-stats">
+                <div class="analytics-stat">
+                  <span class="analytics-stat-value" id="analyticsTotalHits">0</span>
+                  <span class="analytics-stat-label">Total Hits</span>
+                </div>
+                <div class="analytics-stat">
+                  <span class="analytics-stat-value" id="analyticsHitsPerHour">0</span>
+                  <span class="analytics-stat-label">Hits/Hour</span>
+                </div>
+                <div class="analytics-stat">
+                  <span class="analytics-stat-value" id="analyticsTeleports">0</span>
+                  <span class="analytics-stat-label">Teleports</span>
+                </div>
+                <div class="analytics-stat">
+                  <span class="analytics-stat-value" id="analyticsSuccessRate">0%</span>
+                  <span class="analytics-stat-label">Success Rate</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Hits by Search -->
+          <div class="card">
+            <div class="card-header">
+              <h2>Hits by Search</h2>
+            </div>
+            <div class="card-body">
+              <div id="hitsBySearchList" class="hits-by-search-list">
+                <div class="empty-state-small">No hits recorded yet</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recent Activity Timeline -->
+          <div class="card">
+            <div class="card-header">
+              <h2>Recent Activity</h2>
+              <span class="timeline-period">Last 15 minutes</span>
+            </div>
+            <div class="card-body">
+              <div id="activityTimeline" class="activity-timeline">
+                <div class="empty-state-small">No recent activity</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Settings Tab -->
       <div id="tab-settings" class="tab-panel">
         <div class="panel-content">
@@ -196,24 +268,6 @@
                     <option value="Hardcore">Hardcore</option>
                   </select>
                 </div>
-                <div class="form-group">
-                  <label for="alertSound">Alert Sound</label>
-                  <div class="input-with-btn">
-                    <select id="alertSound" class="select">
-                      <option value="chime.wav">Chime</option>
-                      <option value="bell.wav">Bell</option>
-                      <option value="ping.wav">Ping</option>
-                      <option value="alert.wav">Alert</option>
-                      <option value="none">No Sound</option>
-                    </select>
-                    <button id="testSoundBtn" class="btn btn-secondary btn-icon-only" title="Test Sound">
-                      <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
-                      </svg>
-                    </button>
-                  </div>
-                </div>
               </div>
 
               <div class="checkbox-group">
@@ -222,6 +276,13 @@
                   <span class="checkbox-custom"></span>
                   Enable sound notifications
                 </label>
+                <button id="testSoundBtn" class="btn btn-secondary btn-sm" title="Test Sound">
+                  <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                  </svg>
+                  Test
+                </button>
               </div>
 
               <div class="checkbox-group">
