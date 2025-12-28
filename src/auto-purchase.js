@@ -10,12 +10,11 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
 
-// Purple item highlight border color
-// The border pulses in brightness but stays purple/violet
+// Purple border highlight color (#794da5 = RGB 121, 77, 165)
 const HIGHLIGHT_COLOR = {
-  r: { min: 80, max: 180 },   // Moderate red
-  g: { min: 0, max: 60 },      // Very low green
-  b: { min: 120, max: 220 }    // High blue
+  r: { min: 100, max: 150 },   // ~121
+  g: { min: 55, max: 100 },    // ~77
+  b: { min: 140, max: 190 }    // ~165
 };
 
 // Minimum pixels needed to consider it a valid highlight
