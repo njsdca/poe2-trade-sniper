@@ -18,10 +18,10 @@ const HIGHLIGHT_COLOR = {
 // Minimum pixels needed to consider it a valid highlight
 const MIN_HIGHLIGHT_PIXELS = 100;
 
-// Retry settings for auto-purchase
-const RETRY_INTERVAL = 500;      // ms between attempts
-const MAX_ATTEMPTS = 20;         // Maximum attempts (10 seconds total)
-const POST_CLICK_DELAY = 300;    // ms to wait after click before verifying
+// Retry settings for auto-purchase - must be FAST for sniping
+const RETRY_INTERVAL = 50;       // ms between attempts (20 checks per second)
+const MAX_ATTEMPTS = 200;        // Maximum attempts (10 seconds total)
+const POST_CLICK_DELAY = 100;    // ms to wait after click before verifying
 
 /**
  * Check if a pixel color matches any of the highlight color ranges
@@ -88,7 +88,6 @@ async function findHighlightedItem() {
     const bounds = await findHighlightBounds(imgBuffer);
 
     if (!bounds) {
-      console.log('[AutoPurchase] No highlight found on screen');
       return null;
     }
 
@@ -143,17 +142,16 @@ export async function autoPurchase() {
   let highlight = null;
 
   // Phase 1: Wait for highlight to appear (merchant window to load)
-  console.log('[AutoPurchase] Waiting for merchant window to load...');
+  // Polls rapidly with minimal logging for speed
   while (attempts < MAX_ATTEMPTS) {
     attempts++;
     highlight = await findHighlightedItem();
 
     if (highlight) {
-      console.log(`[AutoPurchase] Highlight found on attempt ${attempts}`);
+      console.log(`[AutoPurchase] Highlight found on attempt ${attempts} (${attempts * RETRY_INTERVAL}ms)`);
       break;
     }
 
-    console.log(`[AutoPurchase] Attempt ${attempts}/${MAX_ATTEMPTS} - no highlight yet, retrying...`);
     await delay(RETRY_INTERVAL);
   }
 
