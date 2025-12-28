@@ -433,7 +433,7 @@ ipcMain.handle('debug-auto-purchase', async () => {
   try {
     const { debugHighlightDetection } = await import('./src/auto-purchase.js');
     const bounds = await debugHighlightDetection();
-    const debugPath = path.join(app.getPath('desktop'), 'divinge-debug-highlight.png');
+    const debugPath = join(app.getPath('desktop'), 'divinge-debug-highlight.png');
     return { success: true, path: debugPath, bounds };
   } catch (err) {
     console.error('Debug auto-purchase error:', err);
