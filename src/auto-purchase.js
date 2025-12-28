@@ -4,7 +4,7 @@
 // ========================================
 
 import screenshot from 'screenshot-desktop';
-import sharp from 'sharp';
+import Jimp from 'jimp';
 import { mouse, keyboard, Key, Point } from '@nut-tree-fork/nut-js';
 
 // Magenta highlight color range (the pink/purple border around the item)
@@ -36,31 +36,26 @@ function isHighlightColor(r, g, b) {
  * Find the bounding box of magenta highlighted pixels in the image
  */
 async function findHighlightBounds(imageBuffer) {
-  const { data, info } = await sharp(imageBuffer)
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  const { width, height, channels } = info;
+  const image = await Jimp.read(imageBuffer);
+  const width = image.getWidth();
+  const height = image.getHeight();
 
   let minX = width, maxX = 0, minY = height, maxY = 0;
   let highlightPixels = 0;
 
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * channels;
-      const r = data[idx];
-      const g = data[idx + 1];
-      const b = data[idx + 2];
+  image.scan(0, 0, width, height, function(x, y, idx) {
+    const r = this.bitmap.data[idx + 0];
+    const g = this.bitmap.data[idx + 1];
+    const b = this.bitmap.data[idx + 2];
 
-      if (isHighlightColor(r, g, b)) {
-        highlightPixels++;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
+    if (isHighlightColor(r, g, b)) {
+      highlightPixels++;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
     }
-  }
+  });
 
   if (highlightPixels < MIN_HIGHLIGHT_PIXELS) {
     return null; // No significant highlight found
@@ -169,36 +164,26 @@ export async function autoPurchase() {
  */
 export async function debugHighlightDetection() {
   const imgBuffer = await screenshot({ format: 'png' });
-  const { data, info } = await sharp(imgBuffer)
-    .raw()
-    .toBuffer({ resolveWithObject: true });
+  const image = await Jimp.read(imgBuffer);
+  const width = image.getWidth();
+  const height = image.getHeight();
 
-  const { width, height, channels } = info;
+  // Mark highlight pixels in green
+  image.scan(0, 0, width, height, function(x, y, idx) {
+    const r = this.bitmap.data[idx + 0];
+    const g = this.bitmap.data[idx + 1];
+    const b = this.bitmap.data[idx + 2];
 
-  // Create a copy and mark highlight pixels in green
-  const debugData = Buffer.from(data);
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * channels;
-      const r = data[idx];
-      const g = data[idx + 1];
-      const b = data[idx + 2];
-
-      if (isHighlightColor(r, g, b)) {
-        // Mark as bright green
-        debugData[idx] = 0;
-        debugData[idx + 1] = 255;
-        debugData[idx + 2] = 0;
-      }
+    if (isHighlightColor(r, g, b)) {
+      // Mark as bright green
+      this.bitmap.data[idx + 0] = 0;
+      this.bitmap.data[idx + 1] = 255;
+      this.bitmap.data[idx + 2] = 0;
     }
-  }
+  });
 
   // Save debug image
-  await sharp(debugData, { raw: { width, height, channels } })
-    .png()
-    .toFile('debug-highlight.png');
-
+  await image.writeAsync('debug-highlight.png');
   console.log('[AutoPurchase] Debug image saved to debug-highlight.png');
 
   const bounds = await findHighlightBounds(imgBuffer);
