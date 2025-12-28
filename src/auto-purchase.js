@@ -190,7 +190,7 @@ export async function debugHighlightDetection() {
   const width = image.getWidth();
   const height = image.getHeight();
 
-  // Mark highlight pixels in green
+  // Mark highlight pixels in bright green
   image.scan(0, 0, width, height, function(x, y, idx) {
     const r = this.bitmap.data[idx + 0];
     const g = this.bitmap.data[idx + 1];
@@ -204,9 +204,12 @@ export async function debugHighlightDetection() {
     }
   });
 
-  // Save debug image
-  await image.writeAsync('debug-highlight.png');
-  console.log('[AutoPurchase] Debug image saved to debug-highlight.png');
+  // Save debug image to desktop
+  const os = await import('os');
+  const path = await import('path');
+  const desktopPath = path.join(os.homedir(), 'Desktop', 'divinge-debug-highlight.png');
+  await image.writeAsync(desktopPath);
+  console.log(`[AutoPurchase] Debug image saved to ${desktopPath}`);
 
   const bounds = await findHighlightBounds(imgBuffer);
   console.log('[AutoPurchase] Highlight bounds:', bounds);

@@ -26,6 +26,7 @@ const autoPurchaseCheckbox = document.getElementById('autoPurchase');
 const saveConfigBtn = document.getElementById('saveConfigBtn');
 const testSoundBtn = document.getElementById('testSoundBtn');
 const testAutoPurchaseBtn = document.getElementById('testAutoPurchaseBtn');
+const debugAutoPurchaseBtn = document.getElementById('debugAutoPurchaseBtn');
 
 // DOM Elements - Searches Tab
 const urlInputRow = document.getElementById('urlInputRow');
@@ -777,6 +778,28 @@ async function testAutoPurchase() {
   }
 }
 
+async function debugAutoPurchase() {
+  addLogEntry('info', 'Capturing debug screenshot...');
+  debugAutoPurchaseBtn.disabled = true;
+  debugAutoPurchaseBtn.textContent = 'Saving...';
+
+  const result = await window.api.debugAutoPurchase();
+
+  debugAutoPurchaseBtn.disabled = false;
+  debugAutoPurchaseBtn.textContent = 'Debug';
+
+  if (result.success) {
+    addLogEntry('success', `Debug image saved to: ${result.path}`);
+    if (result.bounds) {
+      addLogEntry('info', `Found ${result.bounds.pixelCount} highlight pixels at (${result.bounds.centerX}, ${result.bounds.centerY})`);
+    } else {
+      addLogEntry('warn', 'No highlight pixels detected in screenshot');
+    }
+  } else {
+    addLogEntry('error', `Debug failed: ${result.error}`);
+  }
+}
+
 // ========================================
 // Updates
 // ========================================
@@ -829,6 +852,7 @@ function setupEventListeners() {
   saveConfigBtn.addEventListener('click', saveConfig);
   testSoundBtn.addEventListener('click', testSound);
   testAutoPurchaseBtn.addEventListener('click', testAutoPurchase);
+  debugAutoPurchaseBtn.addEventListener('click', debugAutoPurchase);
 
   // Search buttons
   addSearchBtn.addEventListener('click', addSearch);

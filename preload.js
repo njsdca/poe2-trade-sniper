@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // Auto-purchase test
   testAutoPurchase: () => ipcRenderer.invoke('test-auto-purchase'),
+  debugAutoPurchase: () => ipcRenderer.invoke('debug-auto-purchase'),
 
   // Economy API
   fetchEconomy: (url) => ipcRenderer.invoke('fetch-economy', url),

@@ -429,6 +429,18 @@ ipcMain.handle('test-auto-purchase', async () => {
   }
 });
 
+ipcMain.handle('debug-auto-purchase', async () => {
+  try {
+    const { debugHighlightDetection } = await import('./src/auto-purchase.js');
+    const bounds = await debugHighlightDetection();
+    const debugPath = path.join(app.getPath('desktop'), 'divinge-debug-highlight.png');
+    return { success: true, path: debugPath, bounds };
+  } catch (err) {
+    console.error('Debug auto-purchase error:', err);
+    return { success: false, error: err.message };
+  }
+});
+
 // Economy API proxy to avoid CORS
 const ALLOWED_API_DOMAINS = ['poe2scout.com'];
 
