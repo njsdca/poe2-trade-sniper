@@ -18,8 +18,10 @@ const HIGHLIGHT_COLOR = {
 // Minimum pixels needed to consider it a valid highlight
 const MIN_HIGHLIGHT_PIXELS = 100;
 
-// Delay before attempting purchase (ms) - wait for trade window to open
-const PURCHASE_DELAY = 800;
+// Retry settings for auto-purchase
+const RETRY_INTERVAL = 500;      // ms between attempts
+const MAX_ATTEMPTS = 20;         // Maximum attempts (10 seconds total)
+const POST_CLICK_DELAY = 300;    // ms to wait after click before verifying
 
 /**
  * Check if a pixel color matches any of the highlight color ranges
@@ -132,29 +134,51 @@ function delay(ms) {
 /**
  * Main auto-purchase function
  * Call this after a successful teleport
+ * Retries until highlight is found, clicked, and disappears (purchase confirmed)
  */
 export async function autoPurchase() {
   console.log('[AutoPurchase] Starting auto-purchase sequence...');
 
-  // Wait for trade window to open
-  await delay(PURCHASE_DELAY);
+  let attempts = 0;
+  let highlight = null;
 
-  // Find the highlighted item
-  const highlight = await findHighlightedItem();
+  // Phase 1: Wait for highlight to appear (merchant window to load)
+  console.log('[AutoPurchase] Waiting for merchant window to load...');
+  while (attempts < MAX_ATTEMPTS) {
+    attempts++;
+    highlight = await findHighlightedItem();
+
+    if (highlight) {
+      console.log(`[AutoPurchase] Highlight found on attempt ${attempts}`);
+      break;
+    }
+
+    console.log(`[AutoPurchase] Attempt ${attempts}/${MAX_ATTEMPTS} - no highlight yet, retrying...`);
+    await delay(RETRY_INTERVAL);
+  }
 
   if (!highlight) {
-    console.log('[AutoPurchase] Could not find highlighted item, aborting');
+    console.log('[AutoPurchase] Could not find highlighted item after max attempts');
     return { success: false, reason: 'no_highlight' };
   }
 
-  // Perform the purchase click
+  // Phase 2: Click the highlighted item
   const clicked = await ctrlClickAt(highlight.centerX, highlight.centerY);
 
-  if (clicked) {
-    console.log('[AutoPurchase] Purchase completed successfully');
+  if (!clicked) {
+    return { success: false, reason: 'click_failed' };
+  }
+
+  // Phase 3: Verify purchase by checking if highlight disappeared
+  await delay(POST_CLICK_DELAY);
+  const highlightAfterClick = await findHighlightedItem();
+
+  if (!highlightAfterClick) {
+    console.log('[AutoPurchase] Purchase confirmed - highlight disappeared');
     return { success: true, position: { x: highlight.centerX, y: highlight.centerY } };
   } else {
-    return { success: false, reason: 'click_failed' };
+    console.log('[AutoPurchase] Highlight still present - purchase may have failed');
+    return { success: false, reason: 'highlight_still_present' };
   }
 }
 
