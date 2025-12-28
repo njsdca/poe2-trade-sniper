@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://web.poecdn.com https://*.poecdn.com data:">
-  <title>Divinedge</title>
+  <title>Divinge</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -56,7 +56,7 @@
           <polygon points="400,256 256,452 256,200" fill="#806030" opacity="0.85"/>
           <polygon points="256,60 400,256 256,452 112,256" fill="url(#innerGlow)"/>
         </svg>
-        <h1 class="app-title">Divinedge</h1>
+        <h1 class="app-title">Divinge</h1>
         <span id="versionBadge" class="version-badge">v0.0.0</span>
       </div>
       <div class="header-right">
@@ -103,6 +103,10 @@
                   <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
                   Start
                 </button>
+                <button id="pauseBtn" class="btn btn-pause" disabled>
+                  <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>
+                  Pause
+                </button>
                 <button id="stopBtn" class="btn btn-stop" disabled>
                   <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12"/></svg>
                   Stop
@@ -131,12 +135,20 @@
                 <span class="search-count" id="searchCount">0 searches</span>
               </div>
               <div class="card-body">
-                <div class="add-search-row">
+                <div class="add-search-row" id="urlInputRow">
                   <input type="text" id="searchUrl" class="input" placeholder="Paste trade URL or query ID...">
                   <button id="addSearchBtn" class="btn btn-primary">
                     <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     Add
                   </button>
+                </div>
+                <div class="add-search-row name-row hidden" id="nameInputRow">
+                  <input type="text" id="searchName" class="input" placeholder="Name this search...">
+                  <button id="confirmSearchBtn" class="btn btn-primary">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                    Confirm
+                  </button>
+                  <button id="cancelSearchBtn" class="btn btn-secondary">Cancel</button>
                 </div>
                 <div id="searchList" class="search-list">
                   <div class="empty-state">
@@ -188,10 +200,10 @@
                   <label for="alertSound">Alert Sound</label>
                   <div class="input-with-btn">
                     <select id="alertSound" class="select">
-                      <option value="alert.wav">Default Alert</option>
                       <option value="chime.wav">Chime</option>
                       <option value="bell.wav">Bell</option>
                       <option value="ping.wav">Ping</option>
+                      <option value="alert.wav">Alert</option>
                       <option value="none">No Sound</option>
                     </select>
                     <button id="testSoundBtn" class="btn btn-secondary btn-icon-only" title="Test Sound">
@@ -340,6 +352,46 @@
               <span>Click the star on any item to add it to your favorites</span>
             </div>
           </main>
+        </div>
+      </div>
+
+      <!-- Price History Modal -->
+      <div id="priceModal" class="price-modal hidden">
+        <div class="price-modal-content">
+          <div class="price-modal-header">
+            <div class="price-modal-item">
+              <img id="priceModalIcon" class="price-modal-icon" src="" alt="">
+              <div>
+                <h3 id="priceModalName">Item Name</h3>
+                <span id="priceModalPrice" class="price-modal-current">0 ex</span>
+              </div>
+            </div>
+            <button id="priceModalClose" class="price-modal-close">&times;</button>
+          </div>
+          <div class="price-modal-body">
+            <div class="chart-time-range">
+              <button class="time-range-btn active" data-range="all">All</button>
+              <button class="time-range-btn" data-range="10">10d</button>
+              <button class="time-range-btn" data-range="5">5d</button>
+              <button class="time-range-btn" data-range="2">2d</button>
+            </div>
+            <div class="chart-container">
+              <svg id="priceChart" class="price-chart" viewBox="0 0 600 280"></svg>
+              <div id="chartTooltip" class="chart-tooltip hidden">
+                <div class="tooltip-price" id="tooltipPrice">0 ex</div>
+                <div class="tooltip-volume" id="tooltipVolume">0 listings</div>
+                <div class="tooltip-time" id="tooltipTime">--</div>
+              </div>
+            </div>
+            <div class="price-chart-labels">
+              <span id="chartMinTime" class="chart-label-time"></span>
+              <span id="chartMaxTime" class="chart-label-time"></span>
+            </div>
+            <div class="chart-legend">
+              <span class="legend-item"><span class="legend-color price"></span>Price</span>
+              <span class="legend-item"><span class="legend-color volume"></span>Volume</span>
+            </div>
+          </div>
         </div>
       </div>
 

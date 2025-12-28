@@ -17,8 +17,6 @@ export class CookieExtractor extends EventEmitter {
       throw new Error('No browser found. Please install Chrome or Microsoft Edge.');
     }
 
-    console.log('[CookieExtractor] Browser executable:', executablePath);
-    console.log('[CookieExtractor] Browser profile path:', this.browserProfilePath);
 
     try {
       // Launch visible browser with persistent profile (same as sniper uses)
@@ -37,9 +35,6 @@ export class CookieExtractor extends EventEmitter {
       // Use persistent profile if provided
       if (this.browserProfilePath) {
         launchOptions.userDataDir = this.browserProfilePath;
-        console.log('[CookieExtractor] Using persistent profile:', this.browserProfilePath);
-      } else {
-        console.log('[CookieExtractor] WARNING: No browser profile path provided!');
       }
 
       this.browser = await puppeteer.launch(launchOptions);
@@ -136,7 +131,6 @@ export class CookieExtractor extends EventEmitter {
           if (isCfChallenge) {
             if (cfAttempts === 0) {
               this.emit('status', 'Completing Cloudflare check...');
-              console.log('[CookieExtractor] Cloudflare challenge detected, waiting...');
             }
             await new Promise(r => setTimeout(r, 1000));
             cfAttempts++;
@@ -154,9 +148,8 @@ export class CookieExtractor extends EventEmitter {
       try {
         isLoggedIn = await checkLoggedIn();
         onLoginPage = await isOnLoginPage();
-        console.log('[CookieExtractor] Initial state - Logged in:', isLoggedIn, 'On login page:', onLoginPage);
       } catch (e) {
-        console.log('[CookieExtractor] Initial check failed (page navigating), will retry...');
+        // Page navigating, will retry
       }
 
       if (isLoggedIn && !onLoginPage) {
@@ -183,12 +176,8 @@ export class CookieExtractor extends EventEmitter {
               continue;
             }
 
-            if (attempts % 10 === 0) {
-              console.log('[CookieExtractor] Waiting for login... attempt', attempts, 'loggedIn:', isLoggedIn, 'onLoginPage:', onLoginPage);
-            }
           } catch (evalError) {
             // Page navigated (OAuth redirect, etc.) - context destroyed, just wait and retry
-            console.log('[CookieExtractor] Page navigating... waiting');
             this.emit('status', 'Following login redirects...');
             continue;
           }
@@ -203,7 +192,6 @@ export class CookieExtractor extends EventEmitter {
 
       // Now get the cookies
       const allCookies = await page.cookies();
-      console.log('[CookieExtractor] Found cookies:', allCookies.map(c => c.name).join(', '));
 
       const poesessid = allCookies.find(c => c.name === 'POESESSID');
       const cfClearance = allCookies.find(c => c.name === 'cf_clearance');
@@ -214,27 +202,22 @@ export class CookieExtractor extends EventEmitter {
           poesessid: poesessid.value,
           cf_clearance: cfClearance ? cfClearance.value : '',
         };
-        console.log('[CookieExtractor] POESESSID:', poesessid.value.substring(0, 8) + '...');
-        console.log('[CookieExtractor] cf_clearance:', cfClearance ? 'YES' : 'NO');
       }
 
       this.emit('status', 'Cookies extracted! Closing browser...');
 
       // Close browser gracefully - give time to save profile
-      console.log('[CookieExtractor] Closing browser...');
       try {
         await this.browser.close();
         // Wait for profile to be saved
         await new Promise(r => setTimeout(r, 1000));
       } catch (e) {
-        console.log('[CookieExtractor] Graceful close failed, force killing...');
         const browserProcess = this.browser.process();
         if (browserProcess && !browserProcess.killed) {
           browserProcess.kill('SIGTERM');
         }
       }
       this.browser = null;
-      console.log('[CookieExtractor] Browser closed');
 
       if (cookies && cookies.poesessid) {
         this.emit('success', cookies);

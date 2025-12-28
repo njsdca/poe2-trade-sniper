@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('api', {
   // Sniper control
   startSniper: () => ipcRenderer.invoke('start-sniper'),
   stopSniper: () => ipcRenderer.invoke('stop-sniper'),
+  togglePause: (paused) => ipcRenderer.invoke('toggle-pause', paused),
   getStatus: () => ipcRenderer.invoke('get-status'),
 
   // Cookie extraction
@@ -20,6 +21,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // Economy API
   fetchEconomy: (url) => ipcRenderer.invoke('fetch-economy', url),
+  fetchItemHistory: (itemId, logCount) => ipcRenderer.invoke('fetch-item-history', itemId, logCount),
 
   // Updates
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),

@@ -12,6 +12,7 @@ const __dirname = dirname(__filename);
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_DELAY_MS = 5000;
 const HEALTH_CHECK_INTERVAL_MS = 30000;
+const MAX_SEEN_TOKENS = 10000; // Prevent memory leak from unbounded Set growth
 
 export class TradeSniper extends EventEmitter {
   constructor(config, options = {}) {
@@ -33,6 +34,14 @@ export class TradeSniper extends EventEmitter {
     // Teleport cooldown - prevent double teleports
     this.lastTeleportTime = 0;
     this.teleportCooldownMs = config.teleportCooldownMs || 5000; // 5 second default
+
+    // Pause state - when paused, we still monitor but don't teleport
+    this.paused = false;
+  }
+
+  setPaused(paused) {
+    this.paused = paused;
+    this.log('INFO', paused ? 'PAUSED - teleports disabled, still monitoring' : 'RESUMED - teleports enabled');
   }
 
   log(level, message, queryId = null) {
@@ -109,19 +118,20 @@ export class TradeSniper extends EventEmitter {
     // Pre-warm HTTP connections to reduce latency on first real request
     try {
       const cookieString = this.getCookieString();
+      const headers = {
+        'Accept': 'application/json',
+        'Cookie': cookieString,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      };
 
-      // Make a lightweight request to establish keep-alive connection
+      // Warm up both endpoints in parallel for faster first request
       const warmupStart = Date.now();
-      await fetch('https://www.pathofexile.com/api/trade2/data/leagues', {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Cookie': cookieString,
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
-      });
+      await Promise.all([
+        fetch('https://www.pathofexile.com/api/trade2/data/leagues', { method: 'GET', headers }),
+        fetch('https://www.pathofexile.com/api/trade2/data/stats', { method: 'GET', headers }),
+      ]);
       const warmupTime = Date.now() - warmupStart;
-      this.log('INFO', `Connection warmed up in ${warmupTime}ms`);
+      this.log('INFO', `Connections warmed up in ${warmupTime}ms`);
     } catch (err) {
       this.log('WARN', `Connection warmup failed: ${err.message}`);
     }
@@ -131,77 +141,77 @@ export class TradeSniper extends EventEmitter {
     const { league } = this.config;
     const fetchUrl = `https://www.pathofexile.com/api/trade2/fetch/${itemIds.join(',')}?query=${queryId}&realm=poe2`;
 
-    // Make fetch request from page context to use cookies
-    const result = await page.evaluate(async (url) => {
-      try {
-        const response = await fetch(url, {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-          },
-          credentials: 'include',
-        });
+    // Use direct Node.js fetch for speed (bypasses Puppeteer overhead ~50-100ms savings)
+    const cookieString = this.getCookieString();
+    const fetchStart = Date.now();
 
-        if (!response.ok) {
-          return { error: true, status: response.status };
-        }
+    const response = await fetch(fetchUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Cookie': cookieString,
+        'Origin': 'https://www.pathofexile.com',
+        'Referer': `https://www.pathofexile.com/trade2/search/poe2/${league}/${queryId}`,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+    });
 
-        return await response.json();
-      } catch (err) {
-        return { error: true, message: err.message };
-      }
-    }, fetchUrl);
-
-    if (result.error) {
-      throw new Error(`Fetch failed: ${result.status || result.message}`);
+    if (!response.ok) {
+      throw new Error(`Fetch failed: ${response.status}`);
     }
 
-    // Process items
+    const result = await response.json();
+    const fetchTime = Date.now() - fetchStart;
+    this.log('DEBUG', `Direct fetch completed in ${fetchTime}ms`, queryId);
+
+    // Process items - SPEED IS CRITICAL: teleport first, log after
     if (result.result && Array.isArray(result.result)) {
       for (const item of result.result) {
         const hideoutToken = item?.listing?.hideout_token;
 
         if (hideoutToken && !this.seenTokens.has(hideoutToken)) {
+          // Prevent unbounded memory growth
+          if (this.seenTokens.size >= MAX_SEEN_TOKENS) {
+            this.seenTokens.clear();
+          }
           this.seenTokens.add(hideoutToken);
-
           const startTime = Date.now();
+
+          // Extract item info (needed for events)
           const price = item.listing?.price
             ? `${item.listing.price.amount} ${item.listing.price.currency}`
             : 'No price';
           const itemName = item.item?.name || item.item?.typeLine || 'Unknown';
           const account = item.listing?.account?.name || 'Unknown';
 
-          this.log('INFO', `>>> DIRECT: ${itemName} @ ${price} from ${account} <<<`, queryId);
-
-          this.emit('listing', {
-            queryId,
-            queryName,
-            itemName,
-            price,
-            account,
-            hideoutToken,
-          });
+          // Check if paused - still emit listing but skip teleport
+          if (this.paused) {
+            this.log('INFO', `[PAUSED] ${itemName} @ ${price} from ${account}`, queryId);
+            this.emit('listing', { queryId, queryName, itemName, price, account, hideoutToken });
+            continue;
+          }
 
           // Check teleport cooldown
           const now = Date.now();
           const timeSinceLastTeleport = now - this.lastTeleportTime;
           if (timeSinceLastTeleport < this.teleportCooldownMs) {
+            // Still emit listing but skip teleport
             const remaining = Math.ceil((this.teleportCooldownMs - timeSinceLastTeleport) / 1000);
             this.log('WARN', `SKIPPED teleport (cooldown ${remaining}s remaining) - ${itemName}`, queryId);
+            this.emit('listing', { queryId, queryName, itemName, price, account, hideoutToken });
             continue;
           }
 
-          // Mark teleport time immediately to prevent race conditions
+          // Mark teleport time IMMEDIATELY to prevent race conditions
           this.lastTeleportTime = now;
 
-          // Fire whisper immediately
+          // FIRE TELEPORT FIRST - this is the critical path
           this.triggerWhisper(hideoutToken, page)
             .then(() => {
               const elapsed = Date.now() - startTime;
               this.log('SUCCESS', `TELEPORT in ${elapsed}ms (direct)`, queryId);
               this.emit('teleport', { queryId, elapsed, itemName, price });
-              this.playSound();
             })
             .catch((err) => {
               this.log('ERROR', `Whisper failed: ${err.message}`, queryId);
@@ -209,6 +219,10 @@ export class TradeSniper extends EventEmitter {
               // Reset cooldown on failure so next listing can try
               this.lastTeleportTime = 0;
             });
+
+          // Now emit listing event and log (non-blocking, happens after teleport is fired)
+          this.log('INFO', `>>> SNIPED: ${itemName} @ ${price} from ${account} <<<`, queryId);
+          this.emit('listing', { queryId, queryName, itemName, price, account, hideoutToken });
         }
       }
     }
@@ -334,50 +348,53 @@ export class TradeSniper extends EventEmitter {
           const data = await response.json();
           this.log('DEBUG', `Fetch response: ${data.result?.length || 0} items`, queryId);
 
+          // Process items - SPEED IS CRITICAL: teleport first, log after
           if (data.result && Array.isArray(data.result)) {
             for (const item of data.result) {
               const hideoutToken = item?.listing?.hideout_token;
 
               if (hideoutToken && !this.seenTokens.has(hideoutToken)) {
+                // Prevent unbounded memory growth
+                if (this.seenTokens.size >= MAX_SEEN_TOKENS) {
+                  this.seenTokens.clear();
+                }
                 this.seenTokens.add(hideoutToken);
-
                 const startTime = Date.now();
+
+                // Extract item info (needed for events)
                 const price = item.listing?.price
                   ? `${item.listing.price.amount} ${item.listing.price.currency}`
                   : 'No price';
                 const itemName = item.item?.name || item.item?.typeLine || 'Unknown';
                 const account = item.listing?.account?.name || 'Unknown';
 
-                this.log('INFO', `>>> NEW LISTING: ${itemName} @ ${price} from ${account} <<<`, queryId);
-
-                this.emit('listing', {
-                  queryId,
-                  queryName,
-                  itemName,
-                  price,
-                  account,
-                  hideoutToken,
-                });
+                // Check if paused - still emit listing but skip teleport
+                if (this.paused) {
+                  this.log('INFO', `[PAUSED] ${itemName} @ ${price} from ${account}`, queryId);
+                  this.emit('listing', { queryId, queryName, itemName, price, account, hideoutToken });
+                  continue;
+                }
 
                 // Check teleport cooldown
                 const now = Date.now();
                 const timeSinceLastTeleport = now - this.lastTeleportTime;
                 if (timeSinceLastTeleport < this.teleportCooldownMs) {
+                  // Still emit listing but skip teleport
                   const remaining = Math.ceil((this.teleportCooldownMs - timeSinceLastTeleport) / 1000);
                   this.log('WARN', `SKIPPED teleport (cooldown ${remaining}s remaining) - ${itemName}`, queryId);
+                  this.emit('listing', { queryId, queryName, itemName, price, account, hideoutToken });
                   continue;
                 }
 
-                // Mark teleport time immediately to prevent race conditions
+                // Mark teleport time IMMEDIATELY to prevent race conditions
                 this.lastTeleportTime = now;
 
-                // Fire and forget whisper to minimize latency - use page context for auth
+                // FIRE TELEPORT FIRST - this is the critical path
                 this.triggerWhisper(hideoutToken, page)
                   .then(() => {
                     const elapsed = Date.now() - startTime;
-                    this.log('SUCCESS', `TELEPORT TRIGGERED in ${elapsed}ms!`, queryId);
+                    this.log('SUCCESS', `TELEPORT in ${elapsed}ms`, queryId);
                     this.emit('teleport', { queryId, elapsed, itemName, price });
-                    this.playSound();
                   })
                   .catch((err) => {
                     this.log('ERROR', `Whisper failed: ${err.message}`, queryId);
@@ -385,6 +402,10 @@ export class TradeSniper extends EventEmitter {
                     // Reset cooldown on failure so next listing can try
                     this.lastTeleportTime = 0;
                   });
+
+                // Now emit listing event and log (non-blocking, happens after teleport is fired)
+                this.log('INFO', `>>> SNIPED: ${itemName} @ ${price} from ${account} <<<`, queryId);
+                this.emit('listing', { queryId, queryName, itemName, price, account, hideoutToken });
               }
             }
           }
@@ -528,7 +549,7 @@ export class TradeSniper extends EventEmitter {
     this.emit('status-change', { running: true });
 
     this.log('INFO', '='.repeat(60));
-    this.log('INFO', 'Divinedge Starting');
+    this.log('INFO', 'Divinge Starting');
     this.log('INFO', `League: ${decodeURIComponent(league)}`);
     this.log('INFO', `Monitoring ${queries.length} search(es): ${queries.map(q => q.id || q).join(', ')}`);
     this.log('INFO', '='.repeat(60));

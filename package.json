@@ -1,7 +1,7 @@
 {
-  "name": "divinedge",
-  "version": "1.3.1",
-  "description": "Divinedge - Monitor live searches and auto-teleport to sellers",
+  "name": "divinge",
+  "version": "1.7.1",
+  "description": "Divinge - Monitor live searches and auto-teleport to sellers",
   "main": "main.js",
   "type": "module",
   "author": "njsdca",
@@ -32,8 +32,8 @@
     "sharp": "^0.34.5"
   },
   "build": {
-    "appId": "com.divinedge.app",
-    "productName": "Divinedge",
+    "appId": "com.divinge.app",
+    "productName": "Divinge",
     "files": [
       "main.js",
       "preload.js",

@@ -50,8 +50,8 @@ const SOUND_PRESETS = {
   },
 };
 
-export function playSound(soundName = 'alert.wav') {
-  const preset = SOUND_PRESETS[soundName] || SOUND_PRESETS['alert.wav'];
+export function playSound(soundName = 'chime.wav') {
+  const preset = SOUND_PRESETS[soundName] || SOUND_PRESETS['chime.wav'];
   const ctx = getAudioContext();
 
   // Resume context if suspended (browser autoplay policy)
@@ -83,6 +83,6 @@ export function playSound(soundName = 'alert.wav') {
 }
 
 // Test function for the settings page
-export function testSound(soundName = 'alert.wav') {
+export function testSound(soundName = 'chime.wav') {
   playSound(soundName);
 }

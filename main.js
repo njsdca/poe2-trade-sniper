@@ -17,7 +17,7 @@ let sniperRunning = false;
 let cookieExtractor = null;
 
 // Use userData directory for config (writable location)
-// This resolves to: Windows: %APPDATA%\Divinedge, macOS: ~/Library/Application Support/Divinedge
+// This resolves to: Windows: %APPDATA%\Divinge, macOS: ~/Library/Application Support/Divinge
 const getConfigPath = () => join(app.getPath('userData'), 'config.json');
 const getBrowserProfilePath = () => join(app.getPath('userData'), 'browser-profile');
 const soundPlayer = player({});
@@ -29,7 +29,7 @@ const defaultConfig = {
   league: 'Fate%20of%20the%20Vaal',
   queries: [],
   soundEnabled: true,
-  soundFile: 'alert.wav',
+  soundFile: 'chime.wav',
   startMinimized: false,
   autoStart: false,
   reconnectDelayMs: 5000,
@@ -132,7 +132,7 @@ function updateTrayMenu() {
   ]);
 
   tray.setContextMenu(contextMenu);
-  tray.setToolTip(sniperRunning ? 'Divinedge - Running' : 'Divinedge - Stopped');
+  tray.setToolTip(sniperRunning ? 'Divinge - Running' : 'Divinge - Stopped');
 }
 
 async function startSniper() {
@@ -221,11 +221,17 @@ function createWindow() {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
     show: false,
   });
 
   mainWindow.loadFile(join(__dirname, 'src', 'renderer', 'index.html'));
+
+  // Open DevTools in development mode
+  if (!app.isPackaged) {
+    mainWindow.webContents.openDevTools();
+  }
 
   mainWindow.once('ready-to-show', () => {
     // Show window unless startMinimized is enabled
@@ -323,6 +329,14 @@ ipcMain.handle('stop-sniper', async () => {
   return !sniperRunning;
 });
 
+ipcMain.handle('toggle-pause', async (event, paused) => {
+  if (sniper) {
+    sniper.setPaused(paused);
+    return { success: true, paused };
+  }
+  return { success: false, error: 'Sniper not running' };
+});
+
 ipcMain.handle('get-status', () => {
   return { running: sniperRunning };
 });
@@ -333,11 +347,19 @@ ipcMain.handle('test-sound', () => {
 });
 
 // Economy API proxy to avoid CORS
+const ALLOWED_API_DOMAINS = ['poe2scout.com'];
+
 ipcMain.handle('fetch-economy', async (event, url) => {
   try {
+    // Validate URL to prevent SSRF attacks
+    const parsedUrl = new URL(url);
+    if (!ALLOWED_API_DOMAINS.some(domain => parsedUrl.hostname.endsWith(domain))) {
+      throw new Error('Invalid API domain');
+    }
+
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'Divinedge/1.0 (contact@divinedge.app)',
+        'User-Agent': 'Divinge/1.0 (contact@divinge.app)',
         'Accept': 'application/json',
       },
     });
@@ -348,6 +370,30 @@ ipcMain.handle('fetch-economy', async (event, url) => {
 
     const data = await response.json();
     return { success: true, data };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('fetch-item-history', async (event, itemId, logCount = 200) => {
+  try {
+    const config = loadConfig();
+    const league = config.league || 'Fate%20of%20the%20Vaal';
+    const url = `https://poe2scout.com/api/items/${itemId}/history?league=${league}&logCount=${logCount}`;
+
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Divinge/1.0 (contact@divinge.app)',
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return { success: true, data: data.price_history || [], hasMore: data.has_more };
   } catch (error) {
     return { success: false, error: error.message };
   }

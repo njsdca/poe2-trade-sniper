@@ -36,7 +36,7 @@ const {
   league,
   queries,
   soundEnabled = true,
-  soundFile = 'alert.wav',
+  soundFile = 'chime.wav',
 } = config;
 
 // ============================================================================
@@ -120,7 +120,7 @@ let browser = null;
 
 async function main() {
   log('INFO', '='.repeat(60));
-  log('INFO', 'Divinedge Starting (Puppeteer Mode)');
+  log('INFO', 'Divinge Starting (Puppeteer Mode)');
   log('INFO', `League: ${decodeURIComponent(league)}`);
   log('INFO', `Monitoring ${queries.length} search(es): ${queries.join(', ')}`);
   log('INFO', '='.repeat(60));

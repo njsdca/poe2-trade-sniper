@@ -1,5 +1,5 @@
 /* ========================================
-   Divinedge - Modern UI Styles
+   Divinge - Modern UI Styles
    ======================================== */
 
 /* CSS Reset & Variables */
@@ -188,6 +188,12 @@ body {
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.6; transform: scale(0.9); }
+}
+
+.status-badge.paused {
+  background: var(--warning-bg);
+  border: 1px solid var(--warning);
+  color: var(--warning);
 }
 
 /* ========================================
@@ -443,6 +449,26 @@ body {
   transform: translateY(-1px);
 }
 
+.btn-pause {
+  background: var(--warning);
+  color: var(--bg-primary);
+  padding: var(--space-sm) var(--space-xl);
+}
+
+.btn-pause:hover:not(:disabled) {
+  background: #eab308;
+  transform: translateY(-1px);
+}
+
+.btn-pause.paused {
+  background: var(--success);
+  color: white;
+}
+
+.btn-pause.paused:hover:not(:disabled) {
+  background: #22c55e;
+}
+
 .btn-success {
   background: var(--success);
   color: var(--text-inverse);
@@ -615,12 +641,23 @@ body {
    ======================================== */
 .add-search-row {
   display: flex;
-  gap: var(--space-md);
+  gap: var(--space-sm);
   margin-bottom: var(--space-md);
 }
 
 .add-search-row .input {
   flex: 1;
+}
+
+.add-search-row.hidden {
+  display: none;
+}
+
+.add-search-row.name-row {
+  background: var(--bg-tertiary);
+  padding: var(--space-sm);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--accent-muted);
 }
 
 .search-count {
@@ -678,9 +715,16 @@ body {
   color: var(--accent);
 }
 
-.query-name {
-  font-size: 12px;
+.query-id.secondary {
+  font-size: 11px;
   color: var(--text-muted);
+  margin-left: var(--space-sm);
+}
+
+.query-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
 }
 
 .remove-btn {
@@ -701,6 +745,50 @@ body {
 .remove-btn:hover:not(:disabled) {
   background: var(--danger-bg);
   color: var(--danger);
+}
+
+.search-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.copy-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.copy-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.copy-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--accent);
+}
+
+.copy-btn.copied {
+  color: var(--success);
+}
+
+.copy-btn.copied svg {
+  animation: pulse 0.3s ease;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
 }
 
 .remove-btn:disabled {
@@ -1402,10 +1490,12 @@ body {
   display: flex;
   gap: var(--space-sm);
   transition: all var(--transition-fast);
+  cursor: pointer;
 }
 
 .item-card:hover {
-  border-color: var(--border-light);
+  border-color: var(--accent-muted);
+  background: var(--bg-tertiary);
 }
 
 .item-icon {
@@ -2074,4 +2164,289 @@ body {
   font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
+}
+
+/* ========================================
+   Price History Modal
+   ======================================== */
+
+.price-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease;
+}
+
+.price-modal.hidden {
+  display: none;
+}
+
+.price-modal-content {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  width: 90%;
+  max-width: 650px;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+}
+
+.price-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+
+.price-modal-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.price-modal-icon {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
+  padding: 4px;
+}
+
+.price-modal-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.price-modal-current {
+  font-size: 14px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.price-modal-close {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: 24px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.price-modal-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.price-modal-body {
+  padding: var(--space-lg);
+}
+
+.chart-time-range {
+  display: flex;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-md);
+}
+
+.time-range-btn {
+  padding: var(--space-xs) var(--space-md);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.time-range-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-light);
+  color: var(--text-primary);
+}
+
+.time-range-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg-primary);
+}
+
+.time-range-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.chart-container {
+  position: relative;
+}
+
+.price-chart {
+  width: 100%;
+  height: 280px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+.price-chart-labels {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-xs);
+}
+
+.chart-label-time {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.chart-legend {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-lg);
+  padding-top: var(--space-xs);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.legend-color {
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.legend-color.price {
+  background: var(--accent);
+}
+
+.legend-color.volume {
+  background: #5a8f5a;
+  height: 8px;
+  opacity: 0.6;
+}
+
+/* Chart Tooltip */
+.chart-tooltip {
+  position: absolute;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  pointer-events: none;
+  z-index: 10;
+  box-shadow: var(--shadow-lg);
+  min-width: 120px;
+}
+
+.chart-tooltip.hidden {
+  display: none;
+}
+
+.tooltip-price {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.tooltip-volume {
+  font-size: 12px;
+  color: #5a8f5a;
+  margin-top: 2px;
+}
+
+.tooltip-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* Chart SVG elements */
+.chart-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chart-step-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.chart-area {
+  fill: url(#chartGradient);
+  opacity: 0.3;
+}
+
+.chart-volume-bar {
+  fill: #5a8f5a;
+  opacity: 0.5;
+}
+
+.chart-volume-bar:hover {
+  opacity: 0.8;
+}
+
+.chart-grid-line {
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.chart-separator {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.chart-dot {
+  fill: var(--accent);
+  stroke: var(--bg-card);
+  stroke-width: 2;
+  cursor: pointer;
+  transition: r 0.15s ease;
+}
+
+.chart-dot:hover {
+  r: 6;
+}
+
+.chart-hit-area {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.chart-price-label {
+  fill: var(--text-muted);
+  font-size: 10px;
+}
+
+.chart-volume-label {
+  fill: var(--text-muted);
+  font-size: 9px;
 }

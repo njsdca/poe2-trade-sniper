@@ -1,5 +1,5 @@
 // ========================================
-// Divinedge - Economy Module (Optimized)
+// Divinge - Economy Module (Optimized)
 // ========================================
 
 const API_BASE = 'https://poe2scout.com/api';
@@ -73,7 +73,25 @@ export function initEconomy(config) {
     exaltedPrice: document.getElementById('exaltedPrice'),
     priceToggleDiv: document.getElementById('priceToggleDiv'),
     priceToggleEx: document.getElementById('priceToggleEx'),
+    // Price modal elements
+    priceModal: document.getElementById('priceModal'),
+    priceModalIcon: document.getElementById('priceModalIcon'),
+    priceModalName: document.getElementById('priceModalName'),
+    priceModalPrice: document.getElementById('priceModalPrice'),
+    priceModalClose: document.getElementById('priceModalClose'),
+    priceChart: document.getElementById('priceChart'),
+    chartMinTime: document.getElementById('chartMinTime'),
+    chartMaxTime: document.getElementById('chartMaxTime'),
+    chartTooltip: document.getElementById('chartTooltip'),
+    tooltipPrice: document.getElementById('tooltipPrice'),
+    tooltipVolume: document.getElementById('tooltipVolume'),
+    tooltipTime: document.getElementById('tooltipTime'),
+    chartTimeRange: document.querySelector('.chart-time-range'),
   };
+
+  // Current chart state
+  state.currentChartItem = null;
+  state.currentTimeRange = 'all';
 
   setupEventListeners();
   updateFavoritesCount();
@@ -117,6 +135,21 @@ function setupEventListeners() {
   // Price toggle
   elements.priceToggleDiv?.addEventListener('click', () => setPriceCurrency('divine'));
   elements.priceToggleEx?.addEventListener('click', () => setPriceCurrency('exalted'));
+
+  // Price history modal
+  elements.priceModalClose?.addEventListener('click', hidePriceHistory);
+  elements.priceModal?.addEventListener('click', (e) => {
+    if (e.target === elements.priceModal) hidePriceHistory();
+  });
+
+  // Time range buttons
+  elements.chartTimeRange?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.time-range-btn');
+    if (btn && !btn.disabled) {
+      const range = btn.dataset.range;
+      setTimeRange(range);
+    }
+  });
 }
 
 // ========================================
@@ -219,12 +252,14 @@ function processItems(data, category) {
   const rawItems = data.items || data || [];
   return rawItems.map(item => ({
     id: item.apiId || item.id || item.text,
+    itemId: item.itemId || item.id, // Numeric ID for history API
     name: item.text || item.name || 'Unknown',
     type: item.categoryApiId || category,
     category,
     icon: item.iconUrl || item.icon || null,
     price: item.currentPrice || 0,
     change: calculatePriceChange(item.priceLogs),
+    priceLogs: item.priceLogs || [], // Store full price history
   }));
 }
 
@@ -320,6 +355,9 @@ function renderItems() {
     return;
   }
 
+  // Update items map for price history lookup
+  updateItemsMap(items);
+
   // Render using DocumentFragment for performance
   const fragment = document.createDocumentFragment();
 
@@ -331,7 +369,7 @@ function renderItems() {
   container.innerHTML = '';
   container.appendChild(fragment);
 
-  // Event delegation for favorites (already handled by container)
+  // Event delegation for favorites and price history
   container.onclick = (e) => {
     const btn = e.target.closest('.favorite-btn');
     if (btn) {
@@ -340,6 +378,17 @@ function renderItems() {
       window.dispatchEvent(new CustomEvent('economy-favorites-changed', {
         detail: { favorites: newFavorites }
       }));
+      return;
+    }
+
+    // Click on item card shows price history
+    const card = e.target.closest('.item-card');
+    if (card) {
+      const itemId = card.dataset.itemId;
+      const item = itemsMap.get(itemId);
+      if (item && item.priceLogs?.length > 0) {
+        showPriceHistory(item);
+      }
     }
   };
 }
@@ -443,6 +492,337 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+// ========================================
+// Price History Chart
+// ========================================
+
+async function showPriceHistory(item) {
+  if (!item.priceLogs || item.priceLogs.length === 0) {
+    return; // No price history available
+  }
+
+  // Store current item for time range filtering
+  state.currentChartItem = item;
+  state.currentTimeRange = 'all';
+
+  // Update modal header
+  elements.priceModalIcon.src = item.icon || '';
+  elements.priceModalName.textContent = item.name;
+
+  // Format current price
+  let displayPrice = item.price;
+  let suffix = 'ex';
+  if (state.priceCurrency === 'divine' && state.divinePrice > 0) {
+    displayPrice = item.price / state.divinePrice;
+    suffix = 'div';
+  }
+  const priceStr = displayPrice > 0
+    ? `${formatPrice(displayPrice)} ${suffix}`
+    : '--';
+  elements.priceModalPrice.textContent = priceStr;
+
+  // Show modal immediately with loading state
+  elements.priceModal.classList.remove('hidden');
+
+  // Show loading in chart area
+  elements.priceChart.innerHTML = `
+    <text x="300" y="140" text-anchor="middle" fill="#8b8b8b" font-size="14">Loading extended history...</text>
+  `;
+  elements.chartMinTime.textContent = '';
+  elements.chartMaxTime.textContent = '';
+
+  // Try to fetch extended history using the history API
+  let priceLogs = item.priceLogs;
+
+  if (item.itemId) {
+    try {
+      const result = await window.api.fetchItemHistory(item.itemId, 500);
+      if (result.success && result.data && result.data.length > 0) {
+        // Map the history API response to our expected format
+        priceLogs = result.data.map(entry => ({
+          price: entry.price,
+          quantity: entry.quantity || entry.listings || 0,
+          time: entry.time || entry.timestamp
+        }));
+        // Update stored item with extended logs for time range filtering
+        state.currentChartItem = { ...item, priceLogs };
+      }
+    } catch (err) {
+      console.warn('Failed to fetch extended history, using default:', err);
+    }
+  }
+
+  // Update time range buttons based on available data
+  updateTimeRangeButtons(priceLogs);
+
+  // Render the chart with extended data
+  renderPriceChart(priceLogs);
+}
+
+function updateTimeRangeButtons(priceLogs) {
+  const buttons = elements.chartTimeRange?.querySelectorAll('.time-range-btn');
+  if (!buttons) return;
+
+  // Calculate data span in days
+  const sortedLogs = [...priceLogs].sort((a, b) => new Date(a.time) - new Date(b.time));
+  const oldestTime = new Date(sortedLogs[0]?.time || Date.now());
+  const newestTime = new Date(sortedLogs[sortedLogs.length - 1]?.time || Date.now());
+  const spanDays = (newestTime - oldestTime) / (1000 * 60 * 60 * 24);
+
+  buttons.forEach(btn => {
+    const range = btn.dataset.range;
+    btn.classList.remove('active');
+
+    if (range === 'all') {
+      btn.classList.add('active');
+      btn.disabled = false;
+    } else {
+      const rangeDays = parseInt(range);
+      // Disable if we don't have enough data for this range
+      btn.disabled = spanDays < rangeDays * 0.5; // Allow if we have at least half the range
+    }
+  });
+}
+
+function setTimeRange(range) {
+  if (!state.currentChartItem) return;
+
+  state.currentTimeRange = range;
+
+  // Update active button
+  const buttons = elements.chartTimeRange?.querySelectorAll('.time-range-btn');
+  buttons?.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.range === range);
+  });
+
+  // Filter data based on range
+  const filteredLogs = filterLogsByRange(state.currentChartItem.priceLogs, range);
+
+  // Re-render chart
+  renderPriceChart(filteredLogs);
+}
+
+function filterLogsByRange(priceLogs, range) {
+  if (range === 'all') return priceLogs;
+
+  const days = parseInt(range);
+  const cutoffTime = new Date();
+  cutoffTime.setDate(cutoffTime.getDate() - days);
+
+  return priceLogs.filter(log => new Date(log.time) >= cutoffTime);
+}
+
+function hidePriceHistory() {
+  elements.priceModal.classList.add('hidden');
+}
+
+function formatPrice(price) {
+  if (price >= 1000000) return (price / 1000000).toFixed(2) + 'M';
+  if (price >= 1000) return (price / 1000).toFixed(1) + 'k';
+  if (price >= 100) return price.toFixed(0);
+  if (price >= 10) return price.toFixed(1);
+  return price.toFixed(2);
+}
+
+function renderPriceChart(priceLogs) {
+  const svg = elements.priceChart;
+  const width = 600;
+  const height = 280;
+  const padding = { top: 20, right: 55, bottom: 10, left: 10 };
+  const priceChartHeight = 180;
+  const volumeChartHeight = 60;
+  const separatorY = padding.top + priceChartHeight;
+
+  // Sort by time (oldest first for proper line drawing)
+  const sortedLogs = [...priceLogs].sort((a, b) => new Date(a.time) - new Date(b.time));
+
+  if (sortedLogs.length === 0) return;
+
+  // Get price range
+  const prices = sortedLogs.map(l => l.price);
+  const minPrice = Math.min(...prices);
+  const maxPrice = Math.max(...prices);
+  const priceRange = maxPrice - minPrice || 1;
+
+  // Add padding to price range
+  const paddedMin = minPrice - priceRange * 0.1;
+  const paddedMax = maxPrice + priceRange * 0.1;
+  const paddedRange = paddedMax - paddedMin;
+
+  // Get volume range
+  const volumes = sortedLogs.map(l => l.quantity || 0);
+  const maxVolume = Math.max(...volumes) || 1;
+
+  // Calculate chart dimensions
+  const chartWidth = width - padding.left - padding.right;
+  const barWidth = chartWidth / sortedLogs.length * 0.7;
+  const barGap = chartWidth / sortedLogs.length * 0.15;
+
+  // Calculate points for price chart
+  const points = sortedLogs.map((log, i) => {
+    const x = padding.left + (i / (sortedLogs.length - 1 || 1)) * chartWidth;
+    const y = padding.top + priceChartHeight - ((log.price - paddedMin) / paddedRange) * priceChartHeight;
+    return { x, y, price: log.price, time: log.time, volume: log.quantity || 0, index: i };
+  });
+
+  // Build step-line path (horizontal then vertical, like trading charts)
+  let stepPath = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length; i++) {
+    // Horizontal line to next x position, then vertical to new y
+    stepPath += ` H ${points[i].x} V ${points[i].y}`;
+  }
+
+  // Build area path for step chart
+  let stepAreaPath = stepPath;
+  stepAreaPath += ` V ${separatorY} H ${points[0].x} Z`;
+
+  // Grid lines for price (3 lines)
+  const priceGridLines = [0.25, 0.5, 0.75].map(pct => {
+    const y = padding.top + priceChartHeight * (1 - pct);
+    const price = paddedMin + paddedRange * pct;
+    return { y, price };
+  });
+
+  // Volume bars
+  const volumeBars = sortedLogs.map((log, i) => {
+    const barX = padding.left + (i / sortedLogs.length) * chartWidth + barGap;
+    const barHeight = ((log.quantity || 0) / maxVolume) * (volumeChartHeight - 10);
+    const barY = separatorY + volumeChartHeight - barHeight;
+    return { x: barX, y: barY, width: barWidth, height: barHeight, volume: log.quantity || 0, time: log.time, price: log.price, index: i };
+  });
+
+  svg.innerHTML = `
+    <defs>
+      <linearGradient id="chartGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" style="stop-color: #c9aa71; stop-opacity: 0.3"/>
+        <stop offset="100%" style="stop-color: #c9aa71; stop-opacity: 0.05"/>
+      </linearGradient>
+      <linearGradient id="volumeGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" style="stop-color: #5a8f5a; stop-opacity: 0.6"/>
+        <stop offset="100%" style="stop-color: #5a8f5a; stop-opacity: 0.2"/>
+      </linearGradient>
+    </defs>
+
+    <!-- Price section grid lines -->
+    ${priceGridLines.map(g => `
+      <line class="chart-grid-line" x1="${padding.left}" y1="${g.y}" x2="${width - padding.right}" y2="${g.y}"/>
+      <text class="chart-price-label" x="${width - padding.right + 5}" y="${g.y + 3}">${formatPrice(g.price)}</text>
+    `).join('')}
+
+    <!-- Separator line between price and volume -->
+    <line class="chart-separator" x1="${padding.left}" y1="${separatorY}" x2="${width - padding.right}" y2="${separatorY}"/>
+
+    <!-- Price area fill -->
+    <path class="chart-area" d="${stepAreaPath}"/>
+
+    <!-- Step line for price -->
+    <path class="chart-step-line" d="${stepPath}"/>
+
+    <!-- Volume bars -->
+    ${volumeBars.map(b => `
+      <rect class="chart-volume-bar" x="${b.x}" y="${b.y}" width="${b.width}" height="${b.height}" rx="2"
+        data-index="${b.index}" fill="url(#volumeGradient)"/>
+    `).join('')}
+
+    <!-- Data points (on top for interaction) -->
+    ${points.map(p => `
+      <circle class="chart-dot" cx="${p.x}" cy="${p.y}" r="4" data-index="${p.index}"/>
+    `).join('')}
+
+    <!-- Hit areas for better hover detection -->
+    ${points.map(p => `
+      <circle class="chart-hit-area" cx="${p.x}" cy="${p.y}" r="15" data-index="${p.index}"/>
+    `).join('')}
+
+    <!-- Min/Max price labels -->
+    <text class="chart-price-label" x="${width - padding.right + 5}" y="${padding.top + 3}">${formatPrice(paddedMax)}</text>
+    <text class="chart-price-label" x="${width - padding.right + 5}" y="${separatorY - 5}">${formatPrice(paddedMin)}</text>
+
+    <!-- Volume label -->
+    <text class="chart-volume-label" x="${width - padding.right + 5}" y="${separatorY + 15}">Vol</text>
+  `;
+
+  // Store chart data for tooltip
+  svg._chartData = { points, volumeBars, sortedLogs };
+
+  // Add hover event listeners
+  setupChartTooltip(svg);
+
+  // Update time labels
+  const oldestTime = new Date(sortedLogs[0].time);
+  const newestTime = new Date(sortedLogs[sortedLogs.length - 1].time);
+
+  elements.chartMinTime.textContent = formatTimeLabel(oldestTime);
+  elements.chartMaxTime.textContent = formatTimeLabel(newestTime);
+}
+
+function setupChartTooltip(svg) {
+  const tooltip = elements.chartTooltip;
+  const chartData = svg._chartData;
+
+  if (!chartData) return;
+
+  svg.addEventListener('mousemove', (e) => {
+    const target = e.target;
+    const index = target.dataset?.index;
+
+    if (index !== undefined) {
+      const i = parseInt(index);
+      const log = chartData.sortedLogs[i];
+
+      if (log) {
+        // Update tooltip content
+        let displayPrice = log.price;
+        let suffix = 'ex';
+        if (state.priceCurrency === 'divine' && state.divinePrice > 0) {
+          displayPrice = log.price / state.divinePrice;
+          suffix = 'div';
+        }
+
+        elements.tooltipPrice.textContent = `${formatPrice(displayPrice)} ${suffix}`;
+        elements.tooltipVolume.textContent = `${(log.quantity || 0).toLocaleString()} listings`;
+        elements.tooltipTime.textContent = formatTooltipTime(new Date(log.time));
+
+        // Position tooltip
+        const rect = svg.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        tooltip.style.left = `${Math.min(x + 10, rect.width - 140)}px`;
+        tooltip.style.top = `${Math.max(y - 70, 10)}px`;
+        tooltip.classList.remove('hidden');
+      }
+    }
+  });
+
+  svg.addEventListener('mouseleave', () => {
+    tooltip.classList.add('hidden');
+  });
+}
+
+function formatTooltipTime(date) {
+  const options = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+  return date.toLocaleDateString('en-US', options);
+}
+
+function formatTimeLabel(date) {
+  const now = new Date();
+  const diffHours = Math.round((now - date) / (1000 * 60 * 60));
+
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.round(diffHours / 24);
+  if (diffDays === 1) return 'Yesterday';
+  return `${diffDays} days ago`;
+}
+
+// Store items map for click lookup
+let itemsMap = new Map();
+
+function updateItemsMap(items) {
+  itemsMap.clear();
+  items.forEach(item => itemsMap.set(item.id, item));
 }
 
 // ========================================

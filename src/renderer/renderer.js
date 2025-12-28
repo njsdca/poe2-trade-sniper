@@ -1,5 +1,5 @@
 // ========================================
-// Divinedge - Renderer
+// Divinge - Renderer
 // ========================================
 
 import { initEconomy, fetchEconomyData, onEconomyTabActivated, getFavorites } from './economy.js';
@@ -12,6 +12,7 @@ const loginStatusText = document.getElementById('loginStatusText');
 
 // DOM Elements - Header
 const startBtn = document.getElementById('startBtn');
+const pauseBtn = document.getElementById('pauseBtn');
 const stopBtn = document.getElementById('stopBtn');
 const statusIndicator = document.getElementById('status-indicator');
 const versionBadge = document.getElementById('versionBadge');
@@ -26,10 +27,18 @@ const saveConfigBtn = document.getElementById('saveConfigBtn');
 const testSoundBtn = document.getElementById('testSoundBtn');
 
 // DOM Elements - Searches Tab
+const urlInputRow = document.getElementById('urlInputRow');
+const nameInputRow = document.getElementById('nameInputRow');
 const searchUrlInput = document.getElementById('searchUrl');
+const searchNameInput = document.getElementById('searchName');
 const addSearchBtn = document.getElementById('addSearchBtn');
+const confirmSearchBtn = document.getElementById('confirmSearchBtn');
+const cancelSearchBtn = document.getElementById('cancelSearchBtn');
 const searchList = document.getElementById('searchList');
 const searchCount = document.getElementById('searchCount');
+
+// Pending search state (for two-step add flow)
+let pendingQueryId = null;
 
 // DOM Elements - Activity Log (now in Searches tab)
 const logContainer = document.getElementById('logContainer');
@@ -54,6 +63,7 @@ const tabPanels = document.querySelectorAll('.tab-panel');
 // State
 let config = {};
 let isRunning = false;
+let isPaused = false;
 let availableVersion = null;
 let currentTab = 'searches';
 
@@ -185,7 +195,7 @@ function hideLoginOverlay() {
 
 function loadConfigToUI() {
   leagueSelect.value = config.league || 'Fate%20of%20the%20Vaal';
-  alertSoundSelect.value = config.soundFile || 'alert.wav';
+  alertSoundSelect.value = config.soundFile || 'chime.wav';
   soundEnabledCheckbox.checked = config.soundEnabled !== false;
   startMinimizedCheckbox.checked = config.startMinimized === true;
   autoStartCheckbox.checked = config.autoStart === true;
@@ -243,16 +253,48 @@ function renderSearchList() {
     const isConnected = connectedQueries.has(id);
 
     return `
-      <div class="search-item" data-index="${index}">
+      <div class="search-item" data-index="${index}" data-query-id="${id}">
         <div class="query-info">
           <span class="connection-status ${isConnected ? 'connected' : ''}" title="${isConnected ? 'Connected' : 'Disconnected'}"></span>
-          <span class="query-id">${id}</span>
-          ${name ? `<span class="query-name">(${name})</span>` : ''}
+          ${name
+            ? `<span class="query-name">${name}</span><span class="query-id secondary">${id}</span>`
+            : `<span class="query-id">${id}</span>`
+          }
         </div>
-        <button class="remove-btn" data-index="${index}" ${isRunning ? 'disabled' : ''} title="Remove search">&times;</button>
+        <div class="search-actions">
+          <button class="copy-btn" data-query-id="${id}" title="Copy trade URL">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+          </button>
+          <button class="remove-btn" data-index="${index}" ${isRunning ? 'disabled' : ''} title="Remove search">&times;</button>
+        </div>
       </div>
     `;
   }).join('');
+
+  // Add copy handlers
+  searchList.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const queryId = btn.dataset.queryId;
+      const league = config.league || 'Standard';
+      const url = `https://www.pathofexile.com/trade2/search/poe2/${league}/${queryId}`;
+
+      try {
+        await navigator.clipboard.writeText(url);
+        btn.classList.add('copied');
+        btn.title = 'Copied!';
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          btn.title = 'Copy trade URL';
+        }, 1500);
+      } catch (err) {
+        console.error('Failed to copy:', err);
+      }
+    });
+  });
 
   // Add remove handlers
   searchList.querySelectorAll('.remove-btn').forEach(btn => {
@@ -272,7 +314,7 @@ function parseTradeUrl(url) {
   return null;
 }
 
-async function addSearch() {
+function addSearch() {
   const url = searchUrlInput.value.trim();
   if (!url) return;
 
@@ -297,13 +339,39 @@ async function addSearch() {
     return;
   }
 
-  // Add to config
-  config.queries = [...queries, queryId];
+  // Store pending query and show name input
+  pendingQueryId = queryId;
+  urlInputRow.classList.add('hidden');
+  nameInputRow.classList.remove('hidden');
+  searchNameInput.value = queryId; // Default to query ID
+  searchNameInput.select();
+  searchNameInput.focus();
+}
+
+async function confirmSearch() {
+  if (!pendingQueryId) return;
+
+  const name = searchNameInput.value.trim();
+
+  // Add to config - use name if different from ID, otherwise just store the ID
+  const newQuery = (name && name !== pendingQueryId) ? { id: pendingQueryId, name } : { id: pendingQueryId };
+  config.queries = [...(config.queries || []), newQuery];
   await window.api.saveConfig(config);
 
   renderSearchList();
+  addLogEntry('info', `Added search: ${name || pendingQueryId}`);
+
+  // Reset UI
+  cancelSearch();
+}
+
+function cancelSearch() {
+  pendingQueryId = null;
   searchUrlInput.value = '';
-  addLogEntry('info', `Added search: ${queryId}`);
+  searchNameInput.value = '';
+  nameInputRow.classList.add('hidden');
+  urlInputRow.classList.remove('hidden');
+  searchUrlInput.focus();
 }
 
 async function removeSearch(index) {
@@ -360,16 +428,46 @@ async function stopSniper() {
   renderSearchList();
 }
 
-function updateRunningState(running) {
+async function togglePause() {
+  if (!isRunning) return;
+
+  const newPausedState = !isPaused;
+  const result = await window.api.togglePause(newPausedState);
+
+  if (result.success) {
+    updateRunningState(true, newPausedState);
+    addLogEntry('info', newPausedState ? 'Sniper paused - monitoring continues, teleports disabled' : 'Sniper resumed - teleports enabled');
+  }
+}
+
+function updateRunningState(running, paused = false) {
   isRunning = running;
+  isPaused = paused;
 
   startBtn.disabled = running;
+  pauseBtn.disabled = !running;
   stopBtn.disabled = !running;
+
+  // Update pause button text and style
+  if (running) {
+    pauseBtn.innerHTML = paused
+      ? '<svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Resume'
+      : '<svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg> Pause';
+    pauseBtn.classList.toggle('paused', paused);
+  }
 
   // Update status indicator
   const statusText = statusIndicator.querySelector('.status-text');
-  statusText.textContent = running ? 'Running' : 'Stopped';
-  statusIndicator.className = `status-badge ${running ? 'running' : 'stopped'}`;
+  if (!running) {
+    statusText.textContent = 'Stopped';
+    statusIndicator.className = 'status-badge stopped';
+  } else if (paused) {
+    statusText.textContent = 'Paused';
+    statusIndicator.className = 'status-badge paused';
+  } else {
+    statusText.textContent = 'Running';
+    statusIndicator.className = 'status-badge running';
+  }
 
   // Disable config editing while running
   leagueSelect.disabled = running;
@@ -377,10 +475,19 @@ function updateRunningState(running) {
   saveConfigBtn.disabled = running;
   addSearchBtn.disabled = running;
   searchUrlInput.disabled = running;
+  searchNameInput.disabled = running;
+  confirmSearchBtn.disabled = running;
+  cancelSearchBtn.disabled = running;
   startMinimizedCheckbox.disabled = running;
   autoStartCheckbox.disabled = running;
 
+  // Cancel any pending search when starting
+  if (running && pendingQueryId) {
+    cancelSearch();
+  }
+
   if (!running) {
+    isPaused = false;
     stopUptimeTimer();
     connectedQueries.clear();
   }
@@ -519,6 +626,7 @@ function setupEventListeners() {
 
   // Control buttons
   startBtn.addEventListener('click', startSniper);
+  pauseBtn.addEventListener('click', togglePause);
   stopBtn.addEventListener('click', stopSniper);
 
   // Log button
@@ -529,12 +637,26 @@ function setupEventListeners() {
   downloadUpdateBtn.addEventListener('click', downloadUpdate);
   installUpdateBtn.addEventListener('click', installUpdate);
 
-  // Enter key to add search
+  // Enter key handling for search inputs
   searchUrlInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
       addSearch();
     }
   });
+  searchNameInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      confirmSearch();
+    }
+  });
+  searchNameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      cancelSearch();
+    }
+  });
+
+  // Confirm/Cancel search buttons
+  confirmSearchBtn.addEventListener('click', confirmSearch);
+  cancelSearchBtn.addEventListener('click', cancelSearch);
 }
 
 // ========================================
@@ -554,7 +676,7 @@ function setupIPCListeners() {
 
     // Play alert sound for new listings
     if (config.soundEnabled && config.soundFile !== 'none') {
-      playSound(config.soundFile || 'alert.wav');
+      playSound(config.soundFile || 'chime.wav');
     }
   });
 
