@@ -7,12 +7,12 @@ import screenshot from 'screenshot-desktop';
 import { Jimp } from 'jimp';
 import { mouse, keyboard, Key, Point } from '@nut-tree-fork/nut-js';
 
-// Magenta highlight color range (the pink/purple border around the item)
-// Based on screenshot analysis - the highlight is a bright magenta/pink
+// Golden/orange highlight color range (the border around the highlighted item)
+// The highlight appears as a golden/orange border
 const HIGHLIGHT_COLOR = {
   r: { min: 200, max: 255 },
-  g: { min: 0, max: 100 },
-  b: { min: 200, max: 255 },
+  g: { min: 150, max: 220 },
+  b: { min: 0, max: 80 },
 };
 
 // Minimum pixels needed to consider it a valid highlight

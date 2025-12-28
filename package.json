@@ -1,6 +1,6 @@
 {
   "name": "divinge",
-  "version": "1.9.2",
+  "version": "1.9.3",
   "description": "Divinge - Monitor live searches and auto-teleport to sellers",
   "main": "main.js",
   "type": "module",
