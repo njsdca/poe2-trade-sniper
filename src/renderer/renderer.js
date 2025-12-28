@@ -22,6 +22,7 @@ const leagueSelect = document.getElementById('league');
 const soundEnabledCheckbox = document.getElementById('soundEnabled');
 const startMinimizedCheckbox = document.getElementById('startMinimized');
 const autoStartCheckbox = document.getElementById('autoStart');
+const autoPurchaseCheckbox = document.getElementById('autoPurchase');
 const saveConfigBtn = document.getElementById('saveConfigBtn');
 const testSoundBtn = document.getElementById('testSoundBtn');
 
@@ -220,6 +221,7 @@ function loadConfigToUI() {
   soundEnabledCheckbox.checked = config.soundEnabled !== false;
   startMinimizedCheckbox.checked = config.startMinimized === true;
   autoStartCheckbox.checked = config.autoStart === true;
+  autoPurchaseCheckbox.checked = config.autoPurchase === true;
 }
 
 function getConfigFromUI() {
@@ -230,6 +232,7 @@ function getConfigFromUI() {
     soundEnabled: soundEnabledCheckbox.checked,
     startMinimized: startMinimizedCheckbox.checked,
     autoStart: autoStartCheckbox.checked,
+    autoPurchase: autoPurchaseCheckbox.checked,
   };
 }
 

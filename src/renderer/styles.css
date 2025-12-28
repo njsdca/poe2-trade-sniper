@@ -639,6 +639,12 @@ body {
   opacity: 0.5;
 }
 
+.setting-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
 /* ========================================
    Search List
    ======================================== */

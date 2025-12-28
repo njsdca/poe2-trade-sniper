@@ -1,0 +1,210 @@
+// ========================================
+// Auto-Purchase Module
+// Automatically purchases highlighted items after teleport
+// ========================================
+
+import screenshot from 'screenshot-desktop';
+import sharp from 'sharp';
+import { mouse, keyboard, Key, Point } from '@nut-tree-fork/nut-js';
+
+// Magenta highlight color range (the pink/purple border around the item)
+// Based on screenshot analysis - the highlight is a bright magenta/pink
+const HIGHLIGHT_COLOR = {
+  r: { min: 200, max: 255 },
+  g: { min: 0, max: 100 },
+  b: { min: 200, max: 255 },
+};
+
+// Minimum pixels needed to consider it a valid highlight
+const MIN_HIGHLIGHT_PIXELS = 50;
+
+// Delay before attempting purchase (ms) - wait for trade window to open
+const PURCHASE_DELAY = 800;
+
+/**
+ * Check if a pixel color matches the magenta highlight
+ */
+function isHighlightColor(r, g, b) {
+  return (
+    r >= HIGHLIGHT_COLOR.r.min && r <= HIGHLIGHT_COLOR.r.max &&
+    g >= HIGHLIGHT_COLOR.g.min && g <= HIGHLIGHT_COLOR.g.max &&
+    b >= HIGHLIGHT_COLOR.b.min && b <= HIGHLIGHT_COLOR.b.max
+  );
+}
+
+/**
+ * Find the bounding box of magenta highlighted pixels in the image
+ */
+async function findHighlightBounds(imageBuffer) {
+  const { data, info } = await sharp(imageBuffer)
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const { width, height, channels } = info;
+
+  let minX = width, maxX = 0, minY = height, maxY = 0;
+  let highlightPixels = 0;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * channels;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+
+      if (isHighlightColor(r, g, b)) {
+        highlightPixels++;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (highlightPixels < MIN_HIGHLIGHT_PIXELS) {
+    return null; // No significant highlight found
+  }
+
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+    centerX: Math.round((minX + maxX) / 2),
+    centerY: Math.round((minY + maxY) / 2),
+    width: maxX - minX,
+    height: maxY - minY,
+    pixelCount: highlightPixels,
+  };
+}
+
+/**
+ * Capture screenshot and find the highlighted item
+ */
+async function findHighlightedItem() {
+  try {
+    // Capture the screen
+    const imgBuffer = await screenshot({ format: 'png' });
+
+    // Find the highlight bounds
+    const bounds = await findHighlightBounds(imgBuffer);
+
+    if (!bounds) {
+      console.log('[AutoPurchase] No highlight found on screen');
+      return null;
+    }
+
+    console.log(`[AutoPurchase] Found highlight at (${bounds.centerX}, ${bounds.centerY}), size: ${bounds.width}x${bounds.height}`);
+    return bounds;
+  } catch (err) {
+    console.error('[AutoPurchase] Error capturing/analyzing screen:', err);
+    return null;
+  }
+}
+
+/**
+ * Perform Ctrl+Click at the specified position
+ */
+async function ctrlClickAt(x, y) {
+  try {
+    // Move mouse to position
+    await mouse.setPosition(new Point(x, y));
+
+    // Small delay to ensure mouse is in position
+    await delay(50);
+
+    // Hold Ctrl, click, release Ctrl
+    await keyboard.pressKey(Key.LeftControl);
+    await mouse.leftClick();
+    await keyboard.releaseKey(Key.LeftControl);
+
+    console.log(`[AutoPurchase] Ctrl+Click performed at (${x}, ${y})`);
+    return true;
+  } catch (err) {
+    console.error('[AutoPurchase] Error performing click:', err);
+    return false;
+  }
+}
+
+/**
+ * Helper function for delays
+ */
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Main auto-purchase function
+ * Call this after a successful teleport
+ */
+export async function autoPurchase() {
+  console.log('[AutoPurchase] Starting auto-purchase sequence...');
+
+  // Wait for trade window to open
+  await delay(PURCHASE_DELAY);
+
+  // Find the highlighted item
+  const highlight = await findHighlightedItem();
+
+  if (!highlight) {
+    console.log('[AutoPurchase] Could not find highlighted item, aborting');
+    return { success: false, reason: 'no_highlight' };
+  }
+
+  // Perform the purchase click
+  const clicked = await ctrlClickAt(highlight.centerX, highlight.centerY);
+
+  if (clicked) {
+    console.log('[AutoPurchase] Purchase completed successfully');
+    return { success: true, position: { x: highlight.centerX, y: highlight.centerY } };
+  } else {
+    return { success: false, reason: 'click_failed' };
+  }
+}
+
+/**
+ * Test function to debug highlight detection
+ * Saves a debug image showing detected highlight pixels
+ */
+export async function debugHighlightDetection() {
+  const imgBuffer = await screenshot({ format: 'png' });
+  const { data, info } = await sharp(imgBuffer)
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const { width, height, channels } = info;
+
+  // Create a copy and mark highlight pixels in green
+  const debugData = Buffer.from(data);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * channels;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+
+      if (isHighlightColor(r, g, b)) {
+        // Mark as bright green
+        debugData[idx] = 0;
+        debugData[idx + 1] = 255;
+        debugData[idx + 2] = 0;
+      }
+    }
+  }
+
+  // Save debug image
+  await sharp(debugData, { raw: { width, height, channels } })
+    .png()
+    .toFile('debug-highlight.png');
+
+  console.log('[AutoPurchase] Debug image saved to debug-highlight.png');
+
+  const bounds = await findHighlightBounds(imgBuffer);
+  console.log('[AutoPurchase] Highlight bounds:', bounds);
+
+  return bounds;
+}
+
+export default { autoPurchase, debugHighlightDetection };

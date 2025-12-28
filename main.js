@@ -4,6 +4,7 @@ import { dirname, join } from 'path';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import electronUpdater from 'electron-updater';
 import player from 'play-sound';
+import { autoPurchase } from './src/auto-purchase.js';
 
 const { autoUpdater } = electronUpdater;
 
@@ -31,6 +32,7 @@ const defaultConfig = {
   soundEnabled: true,
   startMinimized: false,
   autoStart: false,
+  autoPurchase: false, // Auto-purchase items after teleport
   reconnectDelayMs: 5000,
   fetchDelayMs: 100,
   teleportCooldownMs: 5000, // 5 second cooldown between teleports
@@ -147,8 +149,23 @@ async function startSniper() {
     showNotification('New Listing!', `${data.itemName} @ ${data.price}`);
   });
 
-  sniper.on('teleport', (data) => {
+  sniper.on('teleport', async (data) => {
     sendToRenderer('teleport', data);
+
+    // Auto-purchase if enabled
+    const currentConfig = loadConfig();
+    if (currentConfig.autoPurchase) {
+      try {
+        const result = await autoPurchase();
+        if (result.success) {
+          sendToRenderer('log', { level: 'SUCCESS', message: `Auto-purchased item at (${result.position.x}, ${result.position.y})` });
+        } else {
+          sendToRenderer('log', { level: 'WARN', message: `Auto-purchase failed: ${result.reason}` });
+        }
+      } catch (err) {
+        sendToRenderer('log', { level: 'ERROR', message: `Auto-purchase error: ${err.message}` });
+      }
+    }
   });
 
   sniper.on('connected', (data) => {
