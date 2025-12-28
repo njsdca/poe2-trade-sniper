@@ -37,19 +37,68 @@ function isHighlightColor(r, g, b) {
 }
 
 /**
- * Find the bounding box of magenta highlighted pixels in the image
+ * Find the bounding box of highlighted pixels using grid-based clustering
+ * Divides screen into cells and finds the cell with highest purple pixel density
  */
 async function findHighlightBounds(imageBuffer) {
   const image = await Jimp.read(imageBuffer);
   const width = image.bitmap.width;
   const height = image.bitmap.height;
 
+  // Grid cell size - roughly item-sized regions
+  const CELL_SIZE = 100;
+  const gridWidth = Math.ceil(width / CELL_SIZE);
+  const gridHeight = Math.ceil(height / CELL_SIZE);
+
+  // Count purple pixels in each grid cell
+  const grid = new Array(gridWidth * gridHeight).fill(0);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      const r = image.bitmap.data[idx + 0];
+      const g = image.bitmap.data[idx + 1];
+      const b = image.bitmap.data[idx + 2];
+
+      if (isHighlightColor(r, g, b)) {
+        const cellX = Math.floor(x / CELL_SIZE);
+        const cellY = Math.floor(y / CELL_SIZE);
+        grid[cellY * gridWidth + cellX]++;
+      }
+    }
+  }
+
+  // Find the cell with the most purple pixels
+  let maxCount = 0;
+  let maxCellX = 0;
+  let maxCellY = 0;
+
+  for (let cy = 0; cy < gridHeight; cy++) {
+    for (let cx = 0; cx < gridWidth; cx++) {
+      const count = grid[cy * gridWidth + cx];
+      if (count > maxCount) {
+        maxCount = count;
+        maxCellX = cx;
+        maxCellY = cy;
+      }
+    }
+  }
+
+  if (maxCount < MIN_HIGHLIGHT_PIXELS) {
+    return null; // No significant highlight found
+  }
+
+  // Now find exact bounds within the winning cell and neighbors
+  const searchMinX = Math.max(0, (maxCellX - 1) * CELL_SIZE);
+  const searchMaxX = Math.min(width, (maxCellX + 2) * CELL_SIZE);
+  const searchMinY = Math.max(0, (maxCellY - 1) * CELL_SIZE);
+  const searchMaxY = Math.min(height, (maxCellY + 2) * CELL_SIZE);
+
   let minX = width, maxX = 0, minY = height, maxY = 0;
   let highlightPixels = 0;
 
-  // Iterate through all pixels manually (jimp v1.x API)
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+  for (let y = searchMinY; y < searchMaxY; y++) {
+    for (let x = searchMinX; x < searchMaxX; x++) {
       const idx = (y * width + x) * 4;
       const r = image.bitmap.data[idx + 0];
       const g = image.bitmap.data[idx + 1];
@@ -65,9 +114,7 @@ async function findHighlightBounds(imageBuffer) {
     }
   }
 
-  if (highlightPixels < MIN_HIGHLIGHT_PIXELS) {
-    return null; // No significant highlight found
-  }
+  console.log(`[AutoPurchase] Densest cluster at cell (${maxCellX},${maxCellY}) with ${maxCount} pixels`);
 
   return {
     minX,
