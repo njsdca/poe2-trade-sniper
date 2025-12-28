@@ -17,8 +17,8 @@ const HIGHLIGHT_COLOR = {
   b: { min: 140, max: 190 }    // ~165
 };
 
-// Minimum pixels needed to consider it a valid highlight
-const MIN_HIGHLIGHT_PIXELS = 100;
+// Minimum pixels needed to consider it a valid highlight (adjusted for pixel skipping)
+const MIN_HIGHLIGHT_PIXELS = 15;
 
 // Retry settings for auto-purchase - must be FAST for sniping
 const RETRY_INTERVAL = 50;       // ms between attempts (20 checks per second)
@@ -39,6 +39,7 @@ function isHighlightColor(r, g, b) {
 /**
  * Find the bounding box of highlighted pixels using grid-based clustering
  * Divides screen into cells and finds the cell with highest purple pixel density
+ * Optimized: samples every SKIP_PIXELS pixel for speed
  */
 async function findHighlightBounds(imageBuffer) {
   const image = await Jimp.read(imageBuffer);
@@ -46,15 +47,19 @@ async function findHighlightBounds(imageBuffer) {
   const height = image.bitmap.height;
 
   // Grid cell size - roughly item-sized regions
-  const CELL_SIZE = 100;
+  const CELL_SIZE = 80;
+  // Skip pixels for speed (sample every Nth pixel)
+  const SKIP_PIXELS = 3;
+
   const gridWidth = Math.ceil(width / CELL_SIZE);
   const gridHeight = Math.ceil(height / CELL_SIZE);
 
   // Count purple pixels in each grid cell
   const grid = new Array(gridWidth * gridHeight).fill(0);
 
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+  // Sample every SKIP_PIXELS pixel for speed (~9x faster with skip=3)
+  for (let y = 0; y < height; y += SKIP_PIXELS) {
+    for (let x = 0; x < width; x += SKIP_PIXELS) {
       const idx = (y * width + x) * 4;
       const r = image.bitmap.data[idx + 0];
       const g = image.bitmap.data[idx + 1];
@@ -88,7 +93,7 @@ async function findHighlightBounds(imageBuffer) {
     return null; // No significant highlight found
   }
 
-  // Now find exact bounds within the winning cell and neighbors
+  // Now find exact bounds within the winning cell and neighbors (also use skip for speed)
   const searchMinX = Math.max(0, (maxCellX - 1) * CELL_SIZE);
   const searchMaxX = Math.min(width, (maxCellX + 2) * CELL_SIZE);
   const searchMinY = Math.max(0, (maxCellY - 1) * CELL_SIZE);
@@ -97,8 +102,8 @@ async function findHighlightBounds(imageBuffer) {
   let minX = width, maxX = 0, minY = height, maxY = 0;
   let highlightPixels = 0;
 
-  for (let y = searchMinY; y < searchMaxY; y++) {
-    for (let x = searchMinX; x < searchMaxX; x++) {
+  for (let y = searchMinY; y < searchMaxY; y += 2) {
+    for (let x = searchMinX; x < searchMaxX; x += 2) {
       const idx = (y * width + x) * 4;
       const r = image.bitmap.data[idx + 0];
       const g = image.bitmap.data[idx + 1];
@@ -114,7 +119,7 @@ async function findHighlightBounds(imageBuffer) {
     }
   }
 
-  console.log(`[AutoPurchase] Densest cluster at cell (${maxCellX},${maxCellY}) with ${maxCount} pixels`);
+  console.log(`[AutoPurchase] Found cluster at (${maxCellX},${maxCellY}), center: (${Math.round((minX + maxX) / 2)},${Math.round((minY + maxY) / 2)})`);
 
   return {
     minX,

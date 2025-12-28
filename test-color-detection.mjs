@@ -1,4 +1,4 @@
-// Test script to verify color detection with clustering
+// Test script to verify optimized color detection with clustering
 import { Jimp } from 'jimp';
 import { readFileSync } from 'fs';
 
@@ -8,8 +8,9 @@ const HIGHLIGHT_COLOR = {
   b: { min: 140, max: 190 }
 };
 
-const MIN_HIGHLIGHT_PIXELS = 100;
-const CELL_SIZE = 100;
+const MIN_HIGHLIGHT_PIXELS = 15;
+const CELL_SIZE = 80;
+const SKIP_PIXELS = 3;
 
 function isHighlightColor(r, g, b) {
   return (
@@ -20,6 +21,7 @@ function isHighlightColor(r, g, b) {
 }
 
 async function testImage(imagePath) {
+  const start = Date.now();
   console.log('Testing image:', imagePath);
 
   const imgBuffer = readFileSync(imagePath);
@@ -33,9 +35,9 @@ async function testImage(imagePath) {
   const gridHeight = Math.ceil(height / CELL_SIZE);
   const grid = new Array(gridWidth * gridHeight).fill(0);
 
-  // Count pixels per cell
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+  // Optimized: sample every SKIP_PIXELS pixel
+  for (let y = 0; y < height; y += SKIP_PIXELS) {
+    for (let x = 0; x < width; x += SKIP_PIXELS) {
       const idx = (y * width + x) * 4;
       const r = image.bitmap.data[idx];
       const g = image.bitmap.data[idx + 1];
@@ -49,7 +51,6 @@ async function testImage(imagePath) {
     }
   }
 
-  // Find densest cell
   let maxCount = 0;
   let maxCellX = 0;
   let maxCellY = 0;
@@ -72,24 +73,21 @@ async function testImage(imagePath) {
     return;
   }
 
-  // Find exact bounds in that region
   const searchMinX = Math.max(0, (maxCellX - 1) * CELL_SIZE);
   const searchMaxX = Math.min(width, (maxCellX + 2) * CELL_SIZE);
   const searchMinY = Math.max(0, (maxCellY - 1) * CELL_SIZE);
   const searchMaxY = Math.min(height, (maxCellY + 2) * CELL_SIZE);
 
   let minX = width, maxX = 0, minY = height, maxY = 0;
-  let pixelCount = 0;
 
-  for (let y = searchMinY; y < searchMaxY; y++) {
-    for (let x = searchMinX; x < searchMaxX; x++) {
+  for (let y = searchMinY; y < searchMaxY; y += 2) {
+    for (let x = searchMinX; x < searchMaxX; x += 2) {
       const idx = (y * width + x) * 4;
       const r = image.bitmap.data[idx];
       const g = image.bitmap.data[idx + 1];
       const b = image.bitmap.data[idx + 2];
 
       if (isHighlightColor(r, g, b)) {
-        pixelCount++;
         if (x < minX) minX = x;
         if (x > maxX) maxX = x;
         if (y < minY) minY = y;
@@ -100,11 +98,11 @@ async function testImage(imagePath) {
 
   const centerX = Math.round((minX + maxX) / 2);
   const centerY = Math.round((minY + maxY) / 2);
+  const elapsed = Date.now() - start;
 
   console.log('Bounding box: (' + minX + ',' + minY + ') to (' + maxX + ',' + maxY + ')');
-  console.log('Size:', (maxX - minX), 'x', (maxY - minY));
   console.log('Center (click target):', centerX, centerY);
-  console.log('Pixel count in region:', pixelCount);
+  console.log('Processing time:', elapsed, 'ms');
 }
 
 const imagePath = process.argv[2];
