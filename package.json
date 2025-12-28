@@ -1,6 +1,6 @@
 {
   "name": "divinge",
-  "version": "1.9.8",
+  "version": "1.9.9",
   "description": "Divinge - Monitor live searches and auto-teleport to sellers",
   "main": "main.js",
   "type": "module",
@@ -43,6 +43,10 @@
       "src/**/*",
       "assets/**/*",
       "node_modules/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/screenshot-desktop/**/*",
+      "node_modules/@nut-tree-fork/**/*"
     ],
     "win": {
       "target": "nsis",
