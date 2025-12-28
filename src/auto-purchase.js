@@ -7,22 +7,22 @@ import screenshot from 'screenshot-desktop';
 import { Jimp } from 'jimp';
 import { mouse, keyboard, Key, Point } from '@nut-tree-fork/nut-js';
 
-// Golden/orange highlight color range (the border around the highlighted item)
-// The highlight appears as a golden/orange border
+// Purple item highlight border color
+// The border pulses in brightness but stays purple/violet
 const HIGHLIGHT_COLOR = {
-  r: { min: 200, max: 255 },
-  g: { min: 150, max: 220 },
-  b: { min: 0, max: 80 },
+  r: { min: 80, max: 180 },   // Moderate red
+  g: { min: 0, max: 60 },      // Very low green
+  b: { min: 120, max: 220 }    // High blue
 };
 
 // Minimum pixels needed to consider it a valid highlight
-const MIN_HIGHLIGHT_PIXELS = 50;
+const MIN_HIGHLIGHT_PIXELS = 100;
 
 // Delay before attempting purchase (ms) - wait for trade window to open
 const PURCHASE_DELAY = 800;
 
 /**
- * Check if a pixel color matches the magenta highlight
+ * Check if a pixel color matches any of the highlight color ranges
  */
 function isHighlightColor(r, g, b) {
   return (
