@@ -4,7 +4,7 @@
 // ========================================
 
 import screenshot from 'screenshot-desktop';
-import Jimp from 'jimp';
+import { Jimp } from 'jimp';
 import { mouse, keyboard, Key, Point } from '@nut-tree-fork/nut-js';
 
 // Magenta highlight color range (the pink/purple border around the item)
