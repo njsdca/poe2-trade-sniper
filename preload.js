@@ -19,6 +19,9 @@ contextBridge.exposeInMainWorld('api', {
   // Sound
   testSound: () => ipcRenderer.invoke('test-sound'),
 
+  // Auto-purchase test
+  testAutoPurchase: () => ipcRenderer.invoke('test-auto-purchase'),
+
   // Economy API
   fetchEconomy: (url) => ipcRenderer.invoke('fetch-economy', url),
   fetchItemHistory: (itemId, logCount) => ipcRenderer.invoke('fetch-item-history', itemId, logCount),

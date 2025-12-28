@@ -418,6 +418,17 @@ ipcMain.handle('test-sound', () => {
   return { success: true };
 });
 
+ipcMain.handle('test-auto-purchase', async () => {
+  try {
+    const { autoPurchase } = await import('./src/auto-purchase.js');
+    const result = await autoPurchase();
+    return result;
+  } catch (err) {
+    console.error('Test auto-purchase error:', err);
+    return { success: false, reason: err.message };
+  }
+});
+
 // Economy API proxy to avoid CORS
 const ALLOWED_API_DOMAINS = ['poe2scout.com'];
 
