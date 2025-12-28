@@ -6,6 +6,9 @@
 import screenshot from 'screenshot-desktop';
 import { Jimp } from 'jimp';
 import { mouse, keyboard, Key, Point } from '@nut-tree-fork/nut-js';
+import os from 'os';
+import path from 'path';
+import fs from 'fs/promises';
 
 // Purple item highlight border color
 // The border pulses in brightness but stays purple/violet
@@ -189,39 +192,56 @@ export async function autoPurchase() {
  * Saves a debug image showing detected highlight pixels
  */
 export async function debugHighlightDetection() {
-  const imgBuffer = await screenshot({ format: 'png' });
-  const image = await Jimp.read(imgBuffer);
-  const width = image.bitmap.width;
-  const height = image.bitmap.height;
+  try {
+    console.log('[AutoPurchase] Taking screenshot...');
+    const imgBuffer = await screenshot({ format: 'png' });
+    console.log(`[AutoPurchase] Screenshot captured, size: ${imgBuffer.length} bytes`);
 
-  // Mark highlight pixels in bright green
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-      const r = image.bitmap.data[idx + 0];
-      const g = image.bitmap.data[idx + 1];
-      const b = image.bitmap.data[idx + 2];
+    console.log('[AutoPurchase] Loading image with jimp...');
+    const image = await Jimp.read(imgBuffer);
+    const width = image.bitmap.width;
+    const height = image.bitmap.height;
+    console.log(`[AutoPurchase] Image loaded: ${width}x${height}`);
 
-      if (isHighlightColor(r, g, b)) {
-        // Mark as bright green
-        image.bitmap.data[idx + 0] = 0;
-        image.bitmap.data[idx + 1] = 255;
-        image.bitmap.data[idx + 2] = 0;
+    let highlightCount = 0;
+
+    // Mark highlight pixels in bright green
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 4;
+        const r = image.bitmap.data[idx + 0];
+        const g = image.bitmap.data[idx + 1];
+        const b = image.bitmap.data[idx + 2];
+
+        if (isHighlightColor(r, g, b)) {
+          highlightCount++;
+          // Mark as bright green
+          image.bitmap.data[idx + 0] = 0;
+          image.bitmap.data[idx + 1] = 255;
+          image.bitmap.data[idx + 2] = 0;
+        }
       }
     }
+
+    console.log(`[AutoPurchase] Found ${highlightCount} matching pixels`);
+
+    // Save debug image to desktop using getBuffer + fs
+    const desktopPath = path.join(os.homedir(), 'Desktop', 'divinge-debug-highlight.png');
+    console.log(`[AutoPurchase] Saving to: ${desktopPath}`);
+
+    // Get PNG buffer from jimp and write with fs
+    const pngBuffer = await image.getBuffer('image/png');
+    await fs.writeFile(desktopPath, pngBuffer);
+    console.log(`[AutoPurchase] Debug image saved successfully`);
+
+    const bounds = await findHighlightBounds(imgBuffer);
+    console.log('[AutoPurchase] Highlight bounds:', bounds);
+
+    return bounds;
+  } catch (err) {
+    console.error('[AutoPurchase] Debug error:', err);
+    throw err;
   }
-
-  // Save debug image to desktop
-  const os = await import('os');
-  const pathMod = await import('path');
-  const desktopPath = pathMod.join(os.homedir(), 'Desktop', 'divinge-debug-highlight.png');
-  await image.write(desktopPath);
-  console.log(`[AutoPurchase] Debug image saved to ${desktopPath}`);
-
-  const bounds = await findHighlightBounds(imgBuffer);
-  console.log('[AutoPurchase] Highlight bounds:', bounds);
-
-  return bounds;
 }
 
 export default { autoPurchase, debugHighlightDetection };
