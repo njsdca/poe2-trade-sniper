@@ -3,81 +3,74 @@
 // ========================================
 
 import { initEconomy, fetchEconomyData, onEconomyTabActivated, getFavorites } from './economy.js';
-import { playSound, testSound as testSoundEffect } from './sounds.js';
+import { playSound } from './sounds.js';
+
+// DOM Elements - Window Controls
+const minimizeBtn = document.getElementById('minimizeBtn');
+const maximizeBtn = document.getElementById('maximizeBtn');
+const closeBtn = document.getElementById('closeBtn');
 
 // DOM Elements - Login Overlay
 const loginOverlay = document.getElementById('loginOverlay');
 const loginStatus = document.getElementById('loginStatus');
 const loginStatusText = document.getElementById('loginStatusText');
 
-// DOM Elements - Header
-const startBtn = document.getElementById('startBtn');
-const pauseBtn = document.getElementById('pauseBtn');
-const stopBtn = document.getElementById('stopBtn');
+// DOM Elements - Status Bar
 const statusIndicator = document.getElementById('status-indicator');
+const statusInfo = document.getElementById('statusInfo');
+
+// DOM Elements - Sidebar
 const versionBadge = document.getElementById('versionBadge');
+const navItems = document.querySelectorAll('.nav-item');
 
-// DOM Elements - Settings Tab
-const leagueSelect = document.getElementById('league');
-const soundEnabledCheckbox = document.getElementById('soundEnabled');
-const startMinimizedCheckbox = document.getElementById('startMinimized');
-const autoStartCheckbox = document.getElementById('autoStart');
-const autoPurchaseCheckbox = document.getElementById('autoPurchase');
-const saveConfigBtn = document.getElementById('saveConfigBtn');
-const testSoundBtn = document.getElementById('testSoundBtn');
-
-// DOM Elements - Searches Tab
-const urlInputRow = document.getElementById('urlInputRow');
-const nameInputRow = document.getElementById('nameInputRow');
-const searchUrlInput = document.getElementById('searchUrl');
-const searchNameInput = document.getElementById('searchName');
-const addSearchBtn = document.getElementById('addSearchBtn');
-const confirmSearchBtn = document.getElementById('confirmSearchBtn');
-const cancelSearchBtn = document.getElementById('cancelSearchBtn');
-const searchList = document.getElementById('searchList');
-const searchCount = document.getElementById('searchCount');
-const importSearchesBtn = document.getElementById('importSearchesBtn');
-const exportSearchesBtn = document.getElementById('exportSearchesBtn');
-
-// Pending search state (for two-step add flow)
-let pendingQueryId = null;
-
-// DOM Elements - Activity Log (now in Searches tab)
-const logContainer = document.getElementById('logContainer');
-const clearLogBtn = document.getElementById('clearLogBtn');
-
-// DOM Elements - Footer
-const updateStatus = document.getElementById('updateStatus');
-const checkUpdateBtn = document.getElementById('checkUpdateBtn');
-const downloadUpdateBtn = document.getElementById('downloadUpdateBtn');
-const installUpdateBtn = document.getElementById('installUpdateBtn');
-const updateBadge = document.getElementById('updateBadge');
-
-// Stats elements
+// DOM Elements - Home Tab
+const homeStartBtn = document.getElementById('homeStartBtn');
+const homePauseAllBtn = document.getElementById('homePauseAllBtn');
+const homeStopBtn = document.getElementById('homeStopBtn');
 const statListings = document.getElementById('statListings');
 const statTeleports = document.getElementById('statTeleports');
 const statUptime = document.getElementById('statUptime');
+const statSearches = document.getElementById('statSearches');
+const logContainer = document.getElementById('logContainer');
+const clearLogBtn = document.getElementById('clearLogBtn');
 
-// Analytics elements
-const analyticsSessionDuration = document.getElementById('analyticsSessionDuration');
-const analyticsTotalHits = document.getElementById('analyticsTotalHits');
-const analyticsHitsPerHour = document.getElementById('analyticsHitsPerHour');
-const analyticsTeleports = document.getElementById('analyticsTeleports');
-const analyticsSuccessRate = document.getElementById('analyticsSuccessRate');
-const hitsBySearchList = document.getElementById('hitsBySearchList');
-const activityTimeline = document.getElementById('activityTimeline');
+// DOM Elements - Searches Tab
+const searchUrlInput = document.getElementById('searchUrl');
+const addSearchBtn = document.getElementById('addSearchBtn');
+const searchList = document.getElementById('searchList');
+const importSearchesBtn = document.getElementById('importSearchesBtn');
+const exportSearchesBtn = document.getElementById('exportSearchesBtn');
 
-// Tab elements
-const tabButtons = document.querySelectorAll('.tab-btn');
+// DOM Elements - Add Search Modal
+const addSearchModal = document.getElementById('addSearchModal');
+const searchNameInput = document.getElementById('searchNameInput');
+const searchSoundSelect = document.getElementById('searchSoundSelect');
+const previewSoundBtn = document.getElementById('previewSoundBtn');
+const closeSearchModal = document.getElementById('closeSearchModal');
+const cancelSearchModal = document.getElementById('cancelSearchModal');
+const confirmSearchModal = document.getElementById('confirmSearchModal');
+const pendingQueryId = document.getElementById('pendingQueryId');
+
+// DOM Elements - Settings Tab
+const leagueSelect = document.getElementById('league');
+const notificationsCheckbox = document.getElementById('notificationsEnabled');
+const startMinimizedCheckbox = document.getElementById('startMinimized');
+const autoStartCheckbox = document.getElementById('autoStart');
+
+// DOM Elements - Updates
+const updateStatus = document.getElementById('updateStatus');
+const checkUpdateBtn = document.getElementById('checkUpdateBtn');
+const restartUpdateBtn = document.getElementById('restartUpdateBtn');
+
+// Tab panels
 const tabPanels = document.querySelectorAll('.tab-panel');
 
 // State
 let config = {};
 let isRunning = false;
-let isPaused = false;
+let isPausedAll = false;
 let availableVersion = null;
-let currentTab = 'searches';
-
+let currentTab = 'home';
 
 // Stats tracking
 let stats = {
@@ -88,15 +81,11 @@ let stats = {
 };
 let uptimeInterval = null;
 
-// Analytics tracking
-let analytics = {
-  hitsBySearch: {},      // { queryId: count }
-  hitTimeline: [],       // [{ timestamp, queryId, queryName, itemName, price }]
-  sessionStart: null,
-};
-
 // Connected queries tracking
 let connectedQueries = new Set();
+
+// Query state tracking (per-query status)
+let queryStates = new Map(); // queryId -> { status: 'stopped' | 'running' | 'paused', connected: boolean }
 
 // URL parsing regex
 const TRADE_URL_REGEX = /trade2\/search\/poe2\/[^/]+\/([a-zA-Z0-9]+)/;
@@ -110,6 +99,7 @@ async function init() {
 
   loadConfigToUI();
   renderSearchList();
+  updateSearchCount();
 
   const status = await window.api.getStatus();
   updateRunningState(status.running);
@@ -145,10 +135,35 @@ async function init() {
 // ========================================
 
 function setupTabNavigation() {
-  tabButtons.forEach(btn => {
+  navItems.forEach(btn => {
     btn.addEventListener('click', () => {
       const tabId = btn.dataset.tab;
+      const navGroup = btn.closest('.nav-group');
+
+      // Toggle expand for nav groups (like Economy)
+      if (navGroup) {
+        navGroup.classList.toggle('expanded');
+      }
+
       switchTab(tabId);
+    });
+  });
+
+  // Quick action navigation buttons
+  document.querySelectorAll('[data-navigate]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabId = btn.dataset.navigate;
+      switchTab(tabId);
+    });
+  });
+
+  // Subgroup toggles (Currency, League, Uniques)
+  document.querySelectorAll('.nav-subgroup-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const subgroup = btn.closest('.nav-subgroup');
+      if (subgroup) {
+        subgroup.classList.toggle('expanded');
+      }
     });
   });
 }
@@ -156,8 +171,8 @@ function setupTabNavigation() {
 function switchTab(tabId) {
   currentTab = tabId;
 
-  // Update tab buttons
-  tabButtons.forEach(btn => {
+  // Update nav items
+  navItems.forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tab === tabId);
   });
 
@@ -166,14 +181,15 @@ function switchTab(tabId) {
     panel.classList.toggle('active', panel.id === `tab-${tabId}`);
   });
 
+  // Collapse economy nav-group when switching to other tabs
+  const economyNavGroup = document.querySelector('.nav-group');
+  if (economyNavGroup && tabId !== 'economy') {
+    economyNavGroup.classList.remove('expanded');
+  }
+
   // Fetch economy data when economy tab is activated
   if (tabId === 'economy') {
     onEconomyTabActivated();
-  }
-
-  // Update analytics when analytics tab is activated
-  if (tabId === 'analytics') {
-    updateAnalytics();
   }
 }
 
@@ -182,23 +198,19 @@ function switchTab(tabId) {
 // ========================================
 
 async function startLogin() {
-  // Show login overlay
   loginOverlay.classList.remove('hidden');
   loginStatusText.textContent = 'Opening browser...';
   loginStatus.className = 'login-status';
 
-  // Start cookie extraction automatically
   const result = await window.api.extractCookies();
 
   if (result.success) {
-    // Reload config with new cookies
     config = await window.api.getConfig();
     loadConfigToUI();
 
     loginStatusText.textContent = 'Connected! Loading app...';
     loginStatus.className = 'login-status success';
 
-    // Hide overlay after brief success message
     setTimeout(() => {
       hideLoginOverlay();
     }, 1000);
@@ -218,21 +230,19 @@ function hideLoginOverlay() {
 
 function loadConfigToUI() {
   leagueSelect.value = config.league || 'Fate%20of%20the%20Vaal';
-  soundEnabledCheckbox.checked = config.soundEnabled !== false;
+  notificationsCheckbox.checked = config.notificationsEnabled !== false;
   startMinimizedCheckbox.checked = config.startMinimized === true;
   autoStartCheckbox.checked = config.autoStart === true;
-  autoPurchaseCheckbox.checked = config.autoPurchase === true;
 }
 
 function getConfigFromUI() {
   return {
     ...config,
-    // poesessid and cf_clearance are now managed by cookie extractor only
     league: leagueSelect.value,
-    soundEnabled: soundEnabledCheckbox.checked,
+    soundFile: 'notification.mp3',
+    notificationsEnabled: notificationsCheckbox.checked,
     startMinimized: startMinimizedCheckbox.checked,
     autoStart: autoStartCheckbox.checked,
-    autoPurchase: autoPurchaseCheckbox.checked,
   };
 }
 
@@ -251,16 +261,89 @@ async function saveConfig() {
 // Search Management
 // ========================================
 
+function updateSearchCount() {
+  const queries = config.queries || [];
+  const searchText = `${queries.length} ${queries.length === 1 ? 'search' : 'searches'}`;
+  statSearches.textContent = queries.length;
+  if (statusInfo) statusInfo.textContent = searchText;
+}
+
+function getStatusTitle(state) {
+  if (state.status === 'running' && state.connected) return 'Connected & Running';
+  if (state.status === 'running') return 'Connecting...';
+  if (state.status === 'paused') return 'Paused';
+  return 'Stopped';
+}
+
+function renderQueryControls(queryId, state) {
+  const { status } = state;
+  const isStopped = status === 'stopped';
+  const isRunning = status === 'running';
+  const isPaused = status === 'paused';
+
+  return `
+    <button class="action-btn start" data-action="${isPaused ? 'resume' : 'start'}" data-query-id="${queryId}" title="${isPaused ? 'Resume' : 'Start'}" ${isRunning ? 'disabled' : ''}>
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+    </button>
+    <button class="action-btn pause" data-action="pause" data-query-id="${queryId}" title="Pause" ${!isRunning ? 'disabled' : ''}>
+      <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+    </button>
+    <button class="action-btn stop" data-action="stop" data-query-id="${queryId}" title="Stop" ${isStopped ? 'disabled' : ''}>
+      <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12"/></svg>
+    </button>
+  `;
+}
+
+function setupQueryControlListeners() {
+  // Control buttons (start, pause, stop, resume)
+  searchList.querySelectorAll('.action-btn[data-action]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const action = e.currentTarget.dataset.action;
+      const queryId = e.currentTarget.dataset.queryId;
+
+      switch (action) {
+        case 'start':
+          addLogEntry('info', `Starting search: ${queryId}`);
+          await window.api.startQuery(queryId);
+          break;
+        case 'stop':
+          addLogEntry('info', `Stopping search: ${queryId}`);
+          await window.api.stopQuery(queryId);
+          break;
+        case 'pause':
+          addLogEntry('info', `Pausing search: ${queryId}`);
+          await window.api.pauseQuery(queryId);
+          break;
+        case 'resume':
+          addLogEntry('info', `Resuming search: ${queryId}`);
+          await window.api.resumeQuery(queryId);
+          break;
+      }
+    });
+  });
+
+  // Share buttons
+  searchList.querySelectorAll('.action-btn.share').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const url = e.currentTarget.dataset.url;
+      try {
+        await navigator.clipboard.writeText(url);
+        addLogEntry('success', 'Trade URL copied to clipboard');
+      } catch (err) {
+        addLogEntry('error', 'Failed to copy URL');
+      }
+    });
+  });
+}
+
 function renderSearchList() {
   const queries = config.queries || [];
-
-  // Update search count
-  searchCount.textContent = `${queries.length} ${queries.length === 1 ? 'search' : 'searches'}`;
+  updateSearchCount();
 
   if (queries.length === 0) {
     searchList.innerHTML = `
       <div class="empty-state">
-        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
         </svg>
         <p>No searches added yet</p>
@@ -273,59 +356,49 @@ function renderSearchList() {
   searchList.innerHTML = queries.map((query, index) => {
     const id = typeof query === 'string' ? query : query.id;
     const name = typeof query === 'string' ? '' : (query.name || '');
-    const isConnected = connectedQueries.has(id);
-    const hitCount = analytics.hitsBySearch[id] || 0;
+    const sound = typeof query === 'string' ? 'default' : (query.sound || 'default');
+    const state = queryStates.get(id) || { status: 'stopped', connected: false };
+    const canRemove = state.status === 'stopped';
+    const tradeUrl = `https://www.pathofexile.com/trade2/search/poe2/${config.league || 'Standard'}/${id}`;
+    const soundLabel = sound === 'none' ? 'Silent' : (sound === 'default' ? '' : sound.charAt(0).toUpperCase() + sound.slice(1));
 
     return `
       <div class="search-item" data-index="${index}" data-query-id="${id}">
-        <div class="query-info">
-          <span class="connection-status ${isConnected ? 'connected' : ''}" title="${isConnected ? 'Connected' : 'Disconnected'}"></span>
-          ${name
-            ? `<span class="query-name">${name}</span><span class="query-id secondary">${id}</span>`
-            : `<span class="query-id">${id}</span>`
-          }
+        <button class="remove-btn" data-index="${index}" data-query-id="${id}" ${!canRemove ? 'disabled' : ''} title="Remove search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+        <div class="query-bar">
+          <span class="connection-status ${state.status} ${state.connected ? 'connected' : ''}" title="${getStatusTitle(state)}"></span>
+          <span class="query-id">${id}</span>
+          ${name ? `<span class="query-name">${name}</span>` : ''}
+          ${soundLabel ? `<span class="query-sound" title="Sound: ${soundLabel}">${soundLabel}</span>` : ''}
         </div>
-        <div class="search-actions">
-          ${hitCount > 0 ? `<span class="hit-count" title="${hitCount} hits this session">${hitCount}</span>` : ''}
-          <button class="copy-btn" data-query-id="${id}" title="Copy trade URL">
+        <div class="query-actions">
+          ${renderQueryControls(id, state)}
+          <button class="action-btn share" data-query-id="${id}" data-url="${tradeUrl}" title="Copy trade URL">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
             </svg>
           </button>
-          <button class="remove-btn" data-index="${index}" ${isRunning ? 'disabled' : ''} title="Remove search">&times;</button>
         </div>
       </div>
     `;
   }).join('');
 
-  // Add copy handlers
-  searchList.querySelectorAll('.copy-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const queryId = btn.dataset.queryId;
-      const league = config.league || 'Standard';
-      const url = `https://www.pathofexile.com/trade2/search/poe2/${league}/${queryId}`;
+  // Add event listeners for control buttons
+  setupQueryControlListeners();
 
-      try {
-        await navigator.clipboard.writeText(url);
-        btn.classList.add('copied');
-        btn.title = 'Copied!';
-        setTimeout(() => {
-          btn.classList.remove('copied');
-          btn.title = 'Copy trade URL';
-        }, 1500);
-      } catch (err) {
-        console.error('Failed to copy:', err);
-      }
-    });
-  });
-
-  // Add remove handlers
+  // Add event listeners for remove buttons
   searchList.querySelectorAll('.remove-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      if (isRunning) return;
-      const index = parseInt(e.target.dataset.index);
+      const button = e.currentTarget;
+      const queryId = button.dataset.queryId;
+      const state = queryStates.get(queryId) || { status: 'stopped' };
+      if (state.status !== 'stopped') return;
+      const index = parseInt(button.dataset.index);
       removeSearch(index);
     });
   });
@@ -343,10 +416,8 @@ function addSearch() {
   const url = searchUrlInput.value.trim();
   if (!url) return;
 
-  // Try to parse as URL first
   let queryId = parseTradeUrl(url);
 
-  // If not a URL, treat as direct query ID
   if (!queryId && /^[a-zA-Z0-9]+$/.test(url)) {
     queryId = url;
   }
@@ -356,7 +427,6 @@ function addSearch() {
     return;
   }
 
-  // Check for duplicates
   const queries = config.queries || [];
   const exists = queries.some(q => (typeof q === 'string' ? q : q.id) === queryId);
   if (exists) {
@@ -364,39 +434,43 @@ function addSearch() {
     return;
   }
 
-  // Store pending query and show name input
-  pendingQueryId = queryId;
-  urlInputRow.classList.add('hidden');
-  nameInputRow.classList.remove('hidden');
-  searchNameInput.value = queryId; // Default to query ID
-  searchNameInput.select();
+  // Open modal to configure the search
+  openAddSearchModal(queryId);
+}
+
+function openAddSearchModal(queryId) {
+  pendingQueryId.value = queryId;
+  searchNameInput.value = '';
+  searchSoundSelect.value = 'default';
+  addSearchModal.classList.remove('hidden');
   searchNameInput.focus();
 }
 
-async function confirmSearch() {
-  if (!pendingQueryId) return;
-
-  const name = searchNameInput.value.trim();
-
-  // Add to config - use name if different from ID, otherwise just store the ID
-  const newQuery = (name && name !== pendingQueryId) ? { id: pendingQueryId, name } : { id: pendingQueryId };
-  config.queries = [...(config.queries || []), newQuery];
-  await window.api.saveConfig(config);
-
-  renderSearchList();
-  addLogEntry('info', `Added search: ${name || pendingQueryId}`);
-
-  // Reset UI
-  cancelSearch();
+function closeAddSearchModal() {
+  addSearchModal.classList.add('hidden');
+  pendingQueryId.value = '';
+  searchNameInput.value = '';
+  searchSoundSelect.value = 'default';
 }
 
-function cancelSearch() {
-  pendingQueryId = null;
+async function confirmAddSearch() {
+  const queryId = pendingQueryId.value;
+  if (!queryId) return;
+
+  const name = searchNameInput.value.trim() || null;
+  const sound = searchSoundSelect.value;
+
+  const queryObj = { id: queryId };
+  if (name) queryObj.name = name;
+  if (sound && sound !== 'default') queryObj.sound = sound;
+
+  config.queries = [...(config.queries || []), queryObj];
+  await window.api.saveConfig(config);
+
+  closeAddSearchModal();
+  renderSearchList();
   searchUrlInput.value = '';
-  searchNameInput.value = '';
-  nameInputRow.classList.add('hidden');
-  urlInputRow.classList.remove('hidden');
-  searchUrlInput.focus();
+  addLogEntry('info', `Added search: ${name || queryId}`);
 }
 
 async function removeSearch(index) {
@@ -414,18 +488,21 @@ async function removeSearch(index) {
 async function exportSearches() {
   const queries = config.queries || [];
   if (queries.length === 0) {
-    addLogEntry('warn', 'No searches to export');
+    addLogEntry('warn', 'No searches to export.');
     return;
   }
 
-  const result = await window.api.exportSearches(queries);
+  const exportData = {
+    version: 1,
+    league: config.league,
+    queries: queries.map(q => typeof q === 'string' ? { id: q } : q)
+  };
 
-  if (result.canceled) {
-    return;
-  }
-
+  const result = await window.api.exportSearches(exportData);
   if (result.success) {
-    addLogEntry('success', `Exported ${queries.length} search(es) to file`);
+    addLogEntry('success', `Exported ${queries.length} searches to ${result.path}`);
+  } else if (result.cancelled) {
+    // User cancelled, no message needed
   } else {
     addLogEntry('error', `Export failed: ${result.error}`);
   }
@@ -434,7 +511,7 @@ async function exportSearches() {
 async function importSearches() {
   const result = await window.api.importSearches();
 
-  if (result.canceled) {
+  if (result.cancelled) {
     return;
   }
 
@@ -443,33 +520,39 @@ async function importSearches() {
     return;
   }
 
-  const importedSearches = result.searches;
-  const existingQueries = config.queries || [];
-
-  // Merge imports - skip duplicates by ID
-  const existingIds = new Set(existingQueries.map(q => typeof q === 'string' ? q : q.id));
-  let addedCount = 0;
-  let skippedCount = 0;
-
-  for (const search of importedSearches) {
-    const searchId = typeof search === 'string' ? search : search.id;
-    if (!existingIds.has(searchId)) {
-      existingQueries.push(search);
-      existingIds.add(searchId);
-      addedCount++;
-    } else {
-      skippedCount++;
-    }
+  const data = result.data;
+  if (!data || !data.queries || !Array.isArray(data.queries)) {
+    addLogEntry('error', 'Invalid import file format.');
+    return;
   }
 
-  config.queries = existingQueries;
+  const existingIds = new Set((config.queries || []).map(q => typeof q === 'string' ? q : q.id));
+  let added = 0;
+  let skipped = 0;
+
+  for (const query of data.queries) {
+    const id = typeof query === 'string' ? query : query.id;
+    if (!id) continue;
+
+    if (existingIds.has(id)) {
+      skipped++;
+      continue;
+    }
+
+    config.queries = [...(config.queries || []), query];
+    existingIds.add(id);
+    added++;
+  }
+
   await window.api.saveConfig(config);
   renderSearchList();
 
-  if (skippedCount > 0) {
-    addLogEntry('success', `Imported ${addedCount} search(es), skipped ${skippedCount} duplicate(s)`);
+  if (added > 0 && skipped > 0) {
+    addLogEntry('success', `Imported ${added} searches (${skipped} duplicates skipped).`);
+  } else if (added > 0) {
+    addLogEntry('success', `Imported ${added} searches.`);
   } else {
-    addLogEntry('success', `Imported ${addedCount} search(es)`);
+    addLogEntry('warn', `No new searches imported (${skipped} duplicates).`);
   }
 }
 
@@ -480,7 +563,6 @@ async function importSearches() {
 async function startSniper() {
   if (isRunning) return;
 
-  // Save current config first
   config = getConfigFromUI();
   await window.api.saveConfig(config);
 
@@ -492,12 +574,11 @@ async function startSniper() {
 
   if (!config.queries || config.queries.length === 0) {
     addLogEntry('error', 'Add at least one search before starting.');
+    switchTab('searches');
     return;
   }
 
-  // Reset stats and analytics
   stats = { listings: 0, teleports: 0, totalTime: 0, startTime: Date.now() };
-  analytics = { hitsBySearch: {}, hitTimeline: [], sessionStart: Date.now() };
   connectedQueries.clear();
   updateStats();
   startUptimeTimer();
@@ -516,67 +597,61 @@ async function stopSniper() {
   renderSearchList();
 }
 
-async function togglePause() {
+async function togglePauseAll() {
   if (!isRunning) return;
 
-  const newPausedState = !isPaused;
-  const result = await window.api.togglePause(newPausedState);
+  isPausedAll = !isPausedAll;
 
-  if (result.success) {
-    updateRunningState(true, newPausedState);
-    addLogEntry('info', newPausedState ? 'Sniper paused - monitoring continues, teleports disabled' : 'Sniper resumed - teleports enabled');
+  if (isPausedAll) {
+    addLogEntry('info', 'Pausing all searches...');
+    await window.api.pauseAll();
+    homePauseAllBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+    homePauseAllBtn.title = 'Resume All';
+  } else {
+    addLogEntry('info', 'Resuming all searches...');
+    await window.api.resumeAll();
+    homePauseAllBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+    homePauseAllBtn.title = 'Pause All';
   }
 }
 
-function updateRunningState(running, paused = false) {
-  isRunning = running;
-  isPaused = paused;
-
-  startBtn.disabled = running;
-  pauseBtn.disabled = !running;
-  stopBtn.disabled = !running;
-
-  // Update pause button text and style
-  if (running) {
-    pauseBtn.innerHTML = paused
-      ? '<svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Resume'
-      : '<svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg> Pause';
-    pauseBtn.classList.toggle('paused', paused);
-  }
-
-  // Update status indicator
-  const statusText = statusIndicator.querySelector('.status-text');
-  if (!running) {
-    statusText.textContent = 'Stopped';
-    statusIndicator.className = 'status-badge stopped';
-  } else if (paused) {
-    statusText.textContent = 'Paused';
-    statusIndicator.className = 'status-badge paused';
+function updateMaximizeButton(isMaximized) {
+  // Update the maximize button icon based on window state
+  const icon = maximizeBtn.querySelector('svg');
+  if (isMaximized) {
+    // Restore icon (two overlapping rectangles)
+    icon.innerHTML = '<rect x="6" y="6" width="12" height="12" rx="1"/><rect x="4" y="4" width="12" height="12" rx="1" fill="none"/>';
   } else {
-    statusText.textContent = 'Running';
-    statusIndicator.className = 'status-badge running';
+    // Maximize icon (single rectangle)
+    icon.innerHTML = '<rect x="4" y="4" width="16" height="16" rx="1"/>';
   }
+}
 
-  // Disable config editing while running
+function updateRunningState(running) {
+  isRunning = running;
+
+  homeStartBtn.disabled = running;
+  homePauseAllBtn.disabled = !running;
+  homeStopBtn.disabled = !running;
+
+  const statusText = statusIndicator.querySelector('.status-text');
+  statusText.textContent = running ? 'Running' : 'Stopped';
+  statusIndicator.className = `status-indicator ${running ? 'running' : 'stopped'}`;
+
+  // Disable some config editing while running, but allow adding searches
   leagueSelect.disabled = running;
-  saveConfigBtn.disabled = running;
-  addSearchBtn.disabled = running;
-  searchUrlInput.disabled = running;
-  searchNameInput.disabled = running;
-  confirmSearchBtn.disabled = running;
-  cancelSearchBtn.disabled = running;
   startMinimizedCheckbox.disabled = running;
   autoStartCheckbox.disabled = running;
-
-  // Cancel any pending search when starting
-  if (running && pendingQueryId) {
-    cancelSearch();
-  }
+  // Note: addSearchBtn and searchUrlInput are NOT disabled - users can add searches while running
 
   if (!running) {
-    isPaused = false;
     stopUptimeTimer();
     connectedQueries.clear();
+    queryStates.clear();
+    // Reset pause state
+    isPausedAll = false;
+    homePauseAllBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+    homePauseAllBtn.title = 'Pause All';
   }
   renderSearchList();
 }
@@ -622,125 +697,20 @@ function updateUptime() {
 }
 
 // ========================================
-// Analytics
-// ========================================
-
-function updateAnalytics() {
-  // Session duration
-  if (stats.startTime) {
-    const elapsed = Math.floor((Date.now() - stats.startTime) / 1000);
-    const hours = Math.floor(elapsed / 3600);
-    const minutes = Math.floor((elapsed % 3600) / 60);
-    const seconds = elapsed % 60;
-    analyticsSessionDuration.textContent = `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-  } else {
-    analyticsSessionDuration.textContent = '0:00:00';
-  }
-
-  // Total hits
-  const totalHits = Object.values(analytics.hitsBySearch).reduce((sum, count) => sum + count, 0);
-  analyticsTotalHits.textContent = totalHits;
-
-  // Hits per hour
-  if (stats.startTime) {
-    const hoursElapsed = (Date.now() - stats.startTime) / (1000 * 60 * 60);
-    const hitsPerHour = hoursElapsed > 0 ? (totalHits / hoursElapsed).toFixed(1) : '0';
-    analyticsHitsPerHour.textContent = hitsPerHour;
-  } else {
-    analyticsHitsPerHour.textContent = '0';
-  }
-
-  // Teleports
-  analyticsTeleports.textContent = stats.teleports;
-
-  // Success rate (teleports / hits)
-  const successRate = totalHits > 0 ? Math.round((stats.teleports / totalHits) * 100) : 0;
-  analyticsSuccessRate.textContent = `${successRate}%`;
-
-  // Hits by search list
-  renderHitsBySearch();
-
-  // Activity timeline
-  renderActivityTimeline();
-}
-
-function renderHitsBySearch() {
-  const queries = config.queries || [];
-  const hitsEntries = Object.entries(analytics.hitsBySearch)
-    .sort((a, b) => b[1] - a[1]); // Sort by hit count descending
-
-  if (hitsEntries.length === 0) {
-    hitsBySearchList.innerHTML = '<div class="empty-state-small">No hits recorded yet</div>';
-    return;
-  }
-
-  // Calculate total for percentages
-  const totalHits = hitsEntries.reduce((sum, [, count]) => sum + count, 0);
-  const maxHits = hitsEntries[0]?.[1] || 1;
-
-  hitsBySearchList.innerHTML = hitsEntries.map(([queryId, count]) => {
-    // Find query name
-    const query = queries.find(q => (typeof q === 'string' ? q : q.id) === queryId);
-    const name = query && typeof query !== 'string' && query.name ? query.name : queryId;
-    const percentage = ((count / totalHits) * 100).toFixed(1);
-    const barWidth = (count / maxHits) * 100;
-
-    return `
-      <div class="hits-by-search-item">
-        <div class="hits-search-info">
-          <span class="hits-search-name">${name}</span>
-          <span class="hits-search-count">${count} hits (${percentage}%)</span>
-        </div>
-        <div class="hits-bar-container">
-          <div class="hits-bar" style="width: ${barWidth}%"></div>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-function renderActivityTimeline() {
-  // Get hits from last 15 minutes
-  const fifteenMinAgo = Date.now() - (15 * 60 * 1000);
-  const recentHits = analytics.hitTimeline
-    .filter(h => h.timestamp > fifteenMinAgo)
-    .slice(-20) // Show last 20 items max
-    .reverse(); // Most recent first
-
-  if (recentHits.length === 0) {
-    activityTimeline.innerHTML = '<div class="empty-state-small">No recent activity</div>';
-    return;
-  }
-
-  activityTimeline.innerHTML = recentHits.map(hit => {
-    const time = new Date(hit.timestamp).toLocaleTimeString();
-    return `
-      <div class="timeline-item">
-        <span class="timeline-time">${time}</span>
-        <span class="timeline-search">${hit.queryName}</span>
-        <span class="timeline-item-name">${hit.itemName}</span>
-        <span class="timeline-price">${hit.price}</span>
-      </div>
-    `;
-  }).join('');
-}
-
-// ========================================
 // Activity Log
 // ========================================
 
 function addLogEntry(level, message) {
-  const time = new Date().toLocaleTimeString();
+  const now = new Date();
+  const time = now.toLocaleTimeString() + '.' + String(now.getMilliseconds()).padStart(3, '0');
   const formattedMessage = `[${time}] ${message}`;
 
-  // Add to log container
   const entry = document.createElement('div');
   entry.className = `log-entry ${level}`;
   entry.textContent = formattedMessage;
   logContainer.appendChild(entry);
   logContainer.scrollTop = logContainer.scrollHeight;
 
-  // Limit log entries
   while (logContainer.children.length > 500) {
     logContainer.removeChild(logContainer.firstChild);
   }
@@ -752,53 +722,29 @@ function clearLog() {
 }
 
 // ========================================
-// Utilities
-// ========================================
-
-function testSound() {
-  testSoundEffect();
-}
-
-// ========================================
 // Updates
 // ========================================
 
 async function checkForUpdates() {
   checkUpdateBtn.disabled = true;
-  checkUpdateBtn.textContent = 'Checking...';
-  updateStatus.textContent = 'Checking for updates...';
-  updateStatus.className = 'update-status checking';
+  checkUpdateBtn.querySelector('span').textContent = 'Checking...';
+  updateStatus.textContent = '';
 
   const result = await window.api.checkForUpdates();
 
   checkUpdateBtn.disabled = false;
-  checkUpdateBtn.textContent = 'Check for Updates';
+  checkUpdateBtn.querySelector('span').textContent = 'Check for Updates';
 
   if (result.error) {
-    updateStatus.textContent = `Error: ${result.error}`;
-    updateStatus.className = 'update-status error';
+    updateStatus.textContent = '';
     addLogEntry('error', `Update check failed: ${result.error}`);
   }
 }
 
-async function downloadUpdate() {
-  downloadUpdateBtn.disabled = true;
-  downloadUpdateBtn.textContent = 'Starting...';
-  addLogEntry('info', `Downloading update v${availableVersion}...`);
-
-  const result = await window.api.downloadUpdate();
-
-  if (result.error) {
-    downloadUpdateBtn.disabled = false;
-    downloadUpdateBtn.textContent = 'Download';
-    updateStatus.textContent = `Download failed: ${result.error}`;
-    updateStatus.className = 'update-status error';
-    addLogEntry('error', `Download failed: ${result.error}`);
-  }
-}
-
-function installUpdate() {
-  addLogEntry('info', 'Installing update and restarting...');
+function restartToUpdate() {
+  restartUpdateBtn.disabled = true;
+  restartUpdateBtn.querySelector('span').textContent = 'Restarting...';
+  addLogEntry('info', 'Restarting to apply update...');
   window.api.installUpdate();
 }
 
@@ -807,48 +753,80 @@ function installUpdate() {
 // ========================================
 
 function setupEventListeners() {
-  // Config buttons
-  saveConfigBtn.addEventListener('click', saveConfig);
-  testSoundBtn.addEventListener('click', testSound);
+  // Window controls
+  minimizeBtn.addEventListener('click', () => window.api.minimizeWindow());
+  maximizeBtn.addEventListener('click', async () => {
+    const isMaximized = await window.api.maximizeWindow();
+    updateMaximizeButton(isMaximized);
+  });
+  closeBtn.addEventListener('click', () => window.api.closeWindow());
+
+  // Notifications toggle in status bar
+  notificationsCheckbox.addEventListener('change', () => {
+    config.notificationsEnabled = notificationsCheckbox.checked;
+    window.api.saveConfig(config);
+  });
+
+  // Home tab buttons
+  homeStartBtn.addEventListener('click', startSniper);
+  homePauseAllBtn.addEventListener('click', togglePauseAll);
+  homeStopBtn.addEventListener('click', stopSniper);
 
   // Search buttons
   addSearchBtn.addEventListener('click', addSearch);
-  importSearchesBtn.addEventListener('click', importSearches);
-  exportSearchesBtn.addEventListener('click', exportSearches);
-
-  // Control buttons
-  startBtn.addEventListener('click', startSniper);
-  pauseBtn.addEventListener('click', togglePause);
-  stopBtn.addEventListener('click', stopSniper);
 
   // Log button
   clearLogBtn.addEventListener('click', clearLog);
 
+  // Import/Export buttons
+  if (importSearchesBtn) {
+    importSearchesBtn.addEventListener('click', importSearches);
+  }
+  if (exportSearchesBtn) {
+    exportSearchesBtn.addEventListener('click', exportSearches);
+  }
+
   // Update buttons
   checkUpdateBtn.addEventListener('click', checkForUpdates);
-  downloadUpdateBtn.addEventListener('click', downloadUpdate);
-  installUpdateBtn.addEventListener('click', installUpdate);
+  restartUpdateBtn.addEventListener('click', restartToUpdate);
 
-  // Enter key handling for search inputs
+  // Settings buttons
+  const reloginBtn = document.getElementById('reloginBtn');
+  if (reloginBtn) {
+    reloginBtn.addEventListener('click', startLogin);
+  }
+
+  // Enter key to add search
   searchUrlInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
       addSearch();
     }
   });
-  searchNameInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      confirmSearch();
-    }
-  });
-  searchNameInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      cancelSearch();
+
+  // Add Search Modal
+  closeSearchModal.addEventListener('click', closeAddSearchModal);
+  cancelSearchModal.addEventListener('click', closeAddSearchModal);
+  confirmSearchModal.addEventListener('click', confirmAddSearch);
+  previewSoundBtn.addEventListener('click', () => {
+    const sound = searchSoundSelect.value;
+    if (sound && sound !== 'none') {
+      playSound(sound === 'default' ? 'notification.mp3' : `${sound}.mp3`);
     }
   });
 
-  // Confirm/Cancel search buttons
-  confirmSearchBtn.addEventListener('click', confirmSearch);
-  cancelSearchBtn.addEventListener('click', cancelSearch);
+  // Enter key in modal to confirm
+  searchNameInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      confirmAddSearch();
+    }
+  });
+
+  // Escape key to close modal
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !addSearchModal.classList.contains('hidden')) {
+      closeAddSearchModal();
+    }
+  });
 }
 
 // ========================================
@@ -866,33 +844,21 @@ function setupIPCListeners() {
     updateStats();
     addLogEntry('listing', `NEW: ${data.itemName} @ ${data.price} from ${data.account}`);
 
-    // Track analytics
-    const queryId = data.queryId;
-    if (queryId) {
-      // Increment hit count for this search
-      analytics.hitsBySearch[queryId] = (analytics.hitsBySearch[queryId] || 0) + 1;
+    if (config.notificationsEnabled) {
+      // Find the query's custom sound
+      const query = (config.queries || []).find(q =>
+        (typeof q === 'string' ? q : q.id) === data.queryId
+      );
+      const querySound = typeof query === 'object' ? query.sound : null;
 
-      // Add to timeline
-      analytics.hitTimeline.push({
-        timestamp: Date.now(),
-        queryId: queryId,
-        queryName: data.queryName || queryId,
-        itemName: data.itemName,
-        price: data.price,
-        account: data.account
-      });
-
-      // Keep timeline to last 24 hours max (prevent memory bloat)
-      const dayAgo = Date.now() - (24 * 60 * 60 * 1000);
-      analytics.hitTimeline = analytics.hitTimeline.filter(h => h.timestamp > dayAgo);
-
-      // Update search list to show new hit count
-      renderSearchList();
-    }
-
-    // Play alert sound for new listings
-    if (config.soundEnabled) {
-      playSound();
+      // Use query-specific sound, or default
+      if (querySound === 'none') {
+        // Silent - no sound for this query
+      } else if (querySound && querySound !== 'default') {
+        playSound(`${querySound}.mp3`);
+      } else {
+        playSound('notification.mp3');
+      }
     }
   });
 
@@ -905,18 +871,36 @@ function setupIPCListeners() {
 
   window.api.onConnected((data) => {
     connectedQueries.add(data.queryId);
+    // Update query state
+    const state = queryStates.get(data.queryId) || { status: 'running', connected: false };
+    state.connected = true;
+    queryStates.set(data.queryId, state);
     renderSearchList();
     addLogEntry('success', `Connected: ${data.queryId}`);
   });
 
   window.api.onDisconnected((data) => {
     connectedQueries.delete(data.queryId);
+    // Update query state
+    const state = queryStates.get(data.queryId);
+    if (state) {
+      state.connected = false;
+      queryStates.set(data.queryId, state);
+    }
     renderSearchList();
     addLogEntry('warn', `Disconnected: ${data.queryId}`);
   });
 
   window.api.onReconnecting((data) => {
     addLogEntry('info', `Reconnecting: ${data.queryId} (attempt ${data.attempt})`);
+  });
+
+  window.api.onQueryStateChange((data) => {
+    queryStates.set(data.queryId, {
+      status: data.status,
+      connected: data.connected ?? queryStates.get(data.queryId)?.connected ?? false
+    });
+    renderSearchList();
   });
 
   window.api.onError((data) => {
@@ -938,51 +922,39 @@ function setupIPCListeners() {
   });
 
   window.api.onUpdateStatus((data) => {
-    // Reset button visibility and states
+    // Reset UI state
     checkUpdateBtn.style.display = 'none';
-    downloadUpdateBtn.style.display = 'none';
-    installUpdateBtn.style.display = 'none';
-    updateBadge.style.display = 'none';
-    checkUpdateBtn.classList.remove('has-update');
+    restartUpdateBtn.style.display = 'none';
 
     switch (data.status) {
       case 'checking':
-        updateStatus.textContent = 'Checking...';
-        updateStatus.className = 'update-status checking';
+        checkUpdateBtn.style.display = 'flex';
+        checkUpdateBtn.disabled = true;
+        checkUpdateBtn.querySelector('span').textContent = 'Checking...';
+        updateStatus.textContent = '';
         break;
       case 'available':
         availableVersion = data.version;
-        updateStatus.textContent = `v${data.version} available`;
-        updateStatus.className = 'update-status available';
-        downloadUpdateBtn.style.display = 'inline-flex';
-        downloadUpdateBtn.disabled = false;
-        downloadUpdateBtn.textContent = 'Download';
-        // Show notification badge and highlight
-        updateBadge.style.display = 'inline-block';
-        checkUpdateBtn.classList.add('has-update');
-        addLogEntry('info', `Update available: v${data.version}`);
+        updateStatus.textContent = `Downloading v${data.version}...`;
+        addLogEntry('info', `Update v${data.version} found, downloading...`);
+        // Trigger download since autoDownload is false
+        window.api.downloadUpdate().catch(err => {
+          addLogEntry('error', `Download failed: ${err.message || err}`);
+        });
         break;
       case 'downloading':
-        updateStatus.textContent = `Downloading: ${data.percent}%`;
-        updateStatus.className = 'update-status checking';
-        downloadUpdateBtn.style.display = 'inline-flex';
-        downloadUpdateBtn.disabled = true;
-        downloadUpdateBtn.textContent = `${data.percent}%`;
+        updateStatus.textContent = `Downloading... ${data.percent}%`;
         break;
       case 'ready':
-        updateStatus.textContent = 'Ready to install';
-        updateStatus.className = 'update-status available';
-        installUpdateBtn.style.display = 'inline-flex';
-        // Show notification badge
-        updateBadge.style.display = 'inline-block';
-        addLogEntry('success', 'Update downloaded! Click "Restart & Install" to update.');
+        updateStatus.textContent = `v${data.version} ready`;
+        restartUpdateBtn.style.display = 'flex';
+        addLogEntry('success', `Update v${data.version} ready! Click "Restart to Update" when ready.`);
         break;
       case 'up-to-date':
         updateStatus.textContent = 'Up to date';
-        updateStatus.className = 'update-status';
-        checkUpdateBtn.style.display = 'inline-flex';
-        addLogEntry('info', 'You are running the latest version.');
-        // Clear the message after 3 seconds
+        checkUpdateBtn.style.display = 'flex';
+        checkUpdateBtn.disabled = false;
+        checkUpdateBtn.querySelector('span').textContent = 'Check for Updates';
         setTimeout(() => {
           if (updateStatus.textContent === 'Up to date') {
             updateStatus.textContent = '';
@@ -991,13 +963,13 @@ function setupIPCListeners() {
         break;
       case 'error':
         updateStatus.textContent = '';
-        updateStatus.className = 'update-status';
-        checkUpdateBtn.style.display = 'inline-flex';
+        checkUpdateBtn.style.display = 'flex';
+        checkUpdateBtn.disabled = false;
+        checkUpdateBtn.querySelector('span').textContent = 'Check for Updates';
         break;
     }
   });
 
-  // Handle hotkey events from main process
   window.api.onHotkey((data) => {
     if (data.action === 'toggle') {
       if (isRunning) {

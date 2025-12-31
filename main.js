@@ -584,8 +584,8 @@ ipcMain.handle('cancel-cookie-extract', async () => {
   return { success: true };
 });
 
-// Auto-updater setup - seamless background updates
-autoUpdater.autoDownload = true;
+// Auto-updater setup
+autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = true;
 
 autoUpdater.on('checking-for-update', () => {
@@ -718,8 +718,8 @@ ipcMain.handle('install-update', async () => {
 
   console.log('Calling quitAndInstall...');
 
-  // Silent quit and install - isSilent=true for no installer UI, isForceRunAfter=true to restart app
-  autoUpdater.quitAndInstall(true, true);
+  // Force quit and install - use isSilent=false, isForceRunAfter=true
+  autoUpdater.quitAndInstall(false, true);
 });
 
 ipcMain.handle('get-app-version', () => {
