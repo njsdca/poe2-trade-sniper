@@ -1,16 +1,59 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Store listener references for cleanup
+const listeners = new Map();
+
+function registerListener(channel, callback) {
+  const wrappedCallback = (event, data) => callback(data);
+  ipcRenderer.on(channel, wrappedCallback);
+
+  // Store for cleanup
+  if (!listeners.has(channel)) {
+    listeners.set(channel, []);
+  }
+  listeners.get(channel).push(wrappedCallback);
+}
+
+function removeListener(channel) {
+  const channelListeners = listeners.get(channel);
+  if (channelListeners) {
+    channelListeners.forEach(cb => ipcRenderer.removeListener(channel, cb));
+    listeners.delete(channel);
+  }
+}
+
+function removeAllListeners() {
+  for (const [channel, channelListeners] of listeners) {
+    channelListeners.forEach(cb => ipcRenderer.removeListener(channel, cb));
+  }
+  listeners.clear();
+}
+
 contextBridge.exposeInMainWorld('api', {
+  // Window controls
+  minimizeWindow: () => ipcRenderer.invoke('window-minimize'),
+  maximizeWindow: () => ipcRenderer.invoke('window-maximize'),
+  closeWindow: () => ipcRenderer.invoke('window-close'),
+  isMaximized: () => ipcRenderer.invoke('window-is-maximized'),
+
   // Config
   getConfig: () => ipcRenderer.invoke('get-config'),
   saveConfig: (config) => ipcRenderer.invoke('save-config', config),
   checkSetupComplete: () => ipcRenderer.invoke('check-setup-complete'),
 
-  // Sniper control
+  // Sniper control (global)
   startSniper: () => ipcRenderer.invoke('start-sniper'),
   stopSniper: () => ipcRenderer.invoke('stop-sniper'),
-  togglePause: (paused) => ipcRenderer.invoke('toggle-pause', paused),
   getStatus: () => ipcRenderer.invoke('get-status'),
+  pauseAll: () => ipcRenderer.invoke('pause-all'),
+  resumeAll: () => ipcRenderer.invoke('resume-all'),
+
+  // Per-query control
+  startQuery: (queryId) => ipcRenderer.invoke('start-query', queryId),
+  stopQuery: (queryId) => ipcRenderer.invoke('stop-query', queryId),
+  pauseQuery: (queryId) => ipcRenderer.invoke('pause-query', queryId),
+  resumeQuery: (queryId) => ipcRenderer.invoke('resume-query', queryId),
+  getQueryStates: () => ipcRenderer.invoke('get-query-states'),
 
   // Cookie extraction
   extractCookies: () => ipcRenderer.invoke('extract-cookies'),
@@ -37,41 +80,22 @@ contextBridge.exposeInMainWorld('api', {
   installUpdate: () => ipcRenderer.invoke('install-update'),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 
-  // Event listeners
-  onLog: (callback) => {
-    ipcRenderer.on('log', (event, data) => callback(data));
-  },
-  onListing: (callback) => {
-    ipcRenderer.on('listing', (event, data) => callback(data));
-  },
-  onTeleport: (callback) => {
-    ipcRenderer.on('teleport', (event, data) => callback(data));
-  },
-  onConnected: (callback) => {
-    ipcRenderer.on('connected', (event, data) => callback(data));
-  },
-  onDisconnected: (callback) => {
-    ipcRenderer.on('disconnected', (event, data) => callback(data));
-  },
-  onReconnecting: (callback) => {
-    ipcRenderer.on('reconnecting', (event, data) => callback(data));
-  },
-  onError: (callback) => {
-    ipcRenderer.on('error', (event, data) => callback(data));
-  },
-  onCookieExpired: (callback) => {
-    ipcRenderer.on('cookie-expired', (event, data) => callback(data));
-  },
-  onStatusChange: (callback) => {
-    ipcRenderer.on('status-change', (event, data) => callback(data));
-  },
-  onCookieExtractStatus: (callback) => {
-    ipcRenderer.on('cookie-extract-status', (event, data) => callback(data));
-  },
-  onUpdateStatus: (callback) => {
-    ipcRenderer.on('update-status', (event, data) => callback(data));
-  },
-  onHotkey: (callback) => {
-    ipcRenderer.on('hotkey', (event, data) => callback(data));
-  },
+  // Event listeners (with cleanup support)
+  onLog: (callback) => registerListener('log', callback),
+  onListing: (callback) => registerListener('listing', callback),
+  onTeleport: (callback) => registerListener('teleport', callback),
+  onConnected: (callback) => registerListener('connected', callback),
+  onDisconnected: (callback) => registerListener('disconnected', callback),
+  onReconnecting: (callback) => registerListener('reconnecting', callback),
+  onError: (callback) => registerListener('error', callback),
+  onCookieExpired: (callback) => registerListener('cookie-expired', callback),
+  onStatusChange: (callback) => registerListener('status-change', callback),
+  onQueryStateChange: (callback) => registerListener('query-state-change', callback),
+  onCookieExtractStatus: (callback) => registerListener('cookie-extract-status', callback),
+  onUpdateStatus: (callback) => registerListener('update-status', callback),
+  onHotkey: (callback) => registerListener('hotkey', callback),
+
+  // Listener cleanup methods
+  removeListener: (channel) => removeListener(channel),
+  removeAllListeners: () => removeAllListeners(),
 });

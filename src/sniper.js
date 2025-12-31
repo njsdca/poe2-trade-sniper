@@ -5,6 +5,7 @@ import { EventEmitter } from 'events';
 import puppeteer from 'puppeteer-core';
 import player from 'play-sound';
 import { findBrowserExecutable } from './browser-utils.js';
+import { LRUCache } from './lru-cache.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -12,7 +13,7 @@ const __dirname = dirname(__filename);
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_DELAY_MS = 5000;
 const HEALTH_CHECK_INTERVAL_MS = 30000;
-const MAX_SEEN_TOKENS = 10000; // Prevent memory leak from unbounded Set growth
+const MAX_SEEN_TOKENS = 10000;
 
 export class TradeSniper extends EventEmitter {
   constructor(config, options = {}) {
@@ -20,8 +21,10 @@ export class TradeSniper extends EventEmitter {
     this.config = config;
     this.browser = null;
     this.pages = new Map(); // queryId -> { page, connected, reconnectAttempts }
+    this.queryStates = new Map(); // queryId -> { status: 'stopped' | 'running' | 'paused', connected: boolean }
     this.running = false;
-    this.seenTokens = new Set();
+    this.seenTokens = new LRUCache(MAX_SEEN_TOKENS);
+    this.processingIds = new Set(); // Track in-flight item fetches to prevent duplicates
     this.healthCheckInterval = null;
 
     // Sound setup
@@ -34,14 +37,194 @@ export class TradeSniper extends EventEmitter {
     // Teleport cooldown - prevent double teleports
     this.lastTeleportTime = 0;
     this.teleportCooldownMs = config.teleportCooldownMs || 5000; // 5 second default
-
-    // Pause state - when paused, we still monitor but don't teleport
-    this.paused = false;
   }
 
+  // Per-query control methods
+  async startQuery(queryId) {
+    const query = this.config.queries?.find(q =>
+      (typeof q === 'string' ? q : q.id) === queryId
+    );
+    if (!query) {
+      this.log('ERROR', `Query not found: ${queryId}`);
+      return;
+    }
+
+    // Check if already running
+    const existingState = this.queryStates.get(queryId);
+    if (existingState?.status === 'running' || existingState?.status === 'paused') {
+      this.log('WARN', `Query already active: ${queryId}`);
+      return;
+    }
+
+    const queryName = typeof query === 'string' ? query : (query.name || query.id);
+
+    // Initialize state
+    this.queryStates.set(queryId, { status: 'running', connected: false });
+    this.emit('query-state-change', { queryId, status: 'running', connected: false });
+
+    // Ensure browser is running
+    if (!this.browser) {
+      await this.initBrowser();
+    }
+
+    if (!this.browser) {
+      this.log('ERROR', 'Failed to start browser');
+      this.queryStates.set(queryId, { status: 'stopped', connected: false });
+      this.emit('query-state-change', { queryId, status: 'stopped', connected: false });
+      return;
+    }
+
+    // Mark sniper as running if not already
+    if (!this.running) {
+      this.running = true;
+      this.emit('status-change', { running: true });
+      this.startHealthCheck();
+    }
+
+    this.log('INFO', `Starting query: ${queryId}`, queryId);
+
+    // Create page and connect
+    const page = await this.setupPage(queryId, queryName);
+    if (!page) return;
+
+    this.pages.set(queryId, {
+      page,
+      queryName,
+      connected: false,
+      reconnectAttempts: 0,
+    });
+
+    await this.connectQuery(queryId, queryName, page);
+  }
+
+  async stopQuery(queryId) {
+    const pageState = this.pages.get(queryId);
+    if (pageState) {
+      if (pageState.page && !pageState.page.isClosed()) {
+        try { await pageState.page.close(); } catch (e) {}
+      }
+      this.pages.delete(queryId);
+    }
+
+    this.queryStates.set(queryId, { status: 'stopped', connected: false });
+    this.emit('query-state-change', { queryId, status: 'stopped', connected: false });
+    this.emit('disconnected', { queryId });
+    this.log('INFO', `Query stopped: ${queryId}`, queryId);
+
+    // Check if any queries are still running
+    const hasActiveQueries = Array.from(this.queryStates.values()).some(
+      s => s.status === 'running' || s.status === 'paused'
+    );
+    if (!hasActiveQueries && this.running) {
+      await this.stop();
+    }
+  }
+
+  pauseQuery(queryId) {
+    const state = this.queryStates.get(queryId);
+    if (state && state.status === 'running') {
+      state.status = 'paused';
+      this.queryStates.set(queryId, state);
+      this.emit('query-state-change', { queryId, status: 'paused', connected: state.connected });
+      this.log('INFO', 'PAUSED - teleports disabled', queryId);
+    }
+  }
+
+  resumeQuery(queryId) {
+    const state = this.queryStates.get(queryId);
+    if (state && state.status === 'paused') {
+      state.status = 'running';
+      this.queryStates.set(queryId, state);
+      this.emit('query-state-change', { queryId, status: 'running', connected: state.connected });
+      this.log('INFO', 'RESUMED - teleports enabled', queryId);
+    }
+  }
+
+  getQueryState(queryId) {
+    return this.queryStates.get(queryId) || { status: 'stopped', connected: false };
+  }
+
+  getAllQueryStates() {
+    const states = {};
+    for (const [id, state] of this.queryStates) {
+      states[id] = { ...state };
+    }
+    return states;
+  }
+
+  // Global pause (for "Pause All" functionality)
   setPaused(paused) {
-    this.paused = paused;
-    this.log('INFO', paused ? 'PAUSED - teleports disabled, still monitoring' : 'RESUMED - teleports enabled');
+    for (const [queryId, state] of this.queryStates) {
+      if (paused && state.status === 'running') {
+        this.pauseQuery(queryId);
+      } else if (!paused && state.status === 'paused') {
+        this.resumeQuery(queryId);
+      }
+    }
+  }
+
+  async initBrowser() {
+    try {
+      const executablePath = findBrowserExecutable();
+      if (!executablePath) {
+        this.log('ERROR', 'No browser found! Please install Chrome or Edge.');
+        this.emit('error', { error: 'No browser found. Please install Chrome or Microsoft Edge.' });
+        return false;
+      }
+
+      this.log('INFO', `Using browser: ${executablePath}`);
+
+      const launchOptions = {
+        headless: false,
+        executablePath,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--disable-blink-features=AutomationControlled',
+          // Disable throttling for background tabs
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding',
+          // Additional performance flags
+          '--disable-hang-monitor',
+          '--disable-ipc-flooding-protection',
+          '--disable-popup-blocking',
+          '--disable-prompt-on-repost',
+          '--disable-sync',
+          '--disable-translate',
+          '--disable-extensions',
+          '--disable-default-apps',
+          '--disable-client-side-phishing-detection',
+          '--disable-component-update',
+          '--no-default-browser-check',
+          '--disable-features=TranslateUI,OptimizationHints,UseEcoQoSForBackgroundProcess',
+        ],
+      };
+
+      if (this.browserProfilePath) {
+        launchOptions.userDataDir = this.browserProfilePath;
+        this.log('INFO', `Using persistent browser profile: ${this.browserProfilePath}`);
+      }
+
+      this.browser = await puppeteer.launch(launchOptions);
+
+      this.browser.on('disconnected', async () => {
+        if (this.running) {
+          this.log('ERROR', 'Browser disconnected unexpectedly');
+          await this.stop();
+        }
+      });
+
+      await this.warmupConnections();
+      return true;
+    } catch (err) {
+      this.log('ERROR', `Failed to start browser: ${err.message}`);
+      this.emit('error', { error: err.message });
+      return false;
+    }
   }
 
   log(level, message, queryId = null) {
@@ -57,7 +240,7 @@ export class TradeSniper extends EventEmitter {
   }
 
   playSound() {
-    if (!this.config.soundEnabled) return;
+    if (!this.config.soundEnabled || this.config.soundFile === 'none') return;
 
     if (!existsSync(this.soundFilePath)) {
       process.stdout.write('\x07');
@@ -77,61 +260,63 @@ export class TradeSniper extends EventEmitter {
   }
 
   async triggerWhisper(hideoutToken, page) {
-    try {
-      // Use direct Node.js fetch for faster response (bypasses Puppeteer overhead)
-      const cookieString = this.getCookieString();
+    // Use page.evaluate to make request from browser context (has all auth cookies)
+    const result = await page.evaluate(async (token) => {
+      try {
+        const response = await fetch('https://www.pathofexile.com/api/trade2/whisper', {
+          method: 'POST',
+          headers: {
+            'Accept': '*/*',
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'include',
+          body: JSON.stringify({ token }),
+        });
 
-      const response = await fetch('https://www.pathofexile.com/api/trade2/whisper', {
-        method: 'POST',
-        headers: {
-          'Accept': '*/*',
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-          'Cookie': cookieString,
-          'Origin': 'https://www.pathofexile.com',
-          'Referer': 'https://www.pathofexile.com/trade2/search/poe2/Standard',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
-        body: JSON.stringify({ token: hideoutToken }),
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        if (response.status === 403) {
-          this.log('ERROR', '!!! COOKIE EXPIRED - UPDATE cf_clearance !!!');
-          this.emit('cookie-expired');
-          this.playSound();
-          setTimeout(() => this.playSound(), 500);
-          setTimeout(() => this.playSound(), 1000);
+        if (!response.ok) {
+          const text = await response.text();
+          return { error: true, status: response.status, message: text };
         }
-        throw new Error(`Whisper failed: ${response.status} - ${text}`);
-      }
 
-      const data = await response.json();
-      return data;
-    } catch (err) {
-      throw err;
+        const data = await response.json();
+        return { success: true, data };
+      } catch (err) {
+        return { error: true, message: err.message };
+      }
+    }, hideoutToken);
+
+    if (result.error) {
+      if (result.status === 403) {
+        this.log('ERROR', '!!! COOKIE EXPIRED - UPDATE cf_clearance !!!');
+        this.emit('cookie-expired');
+        this.playSound();
+        setTimeout(() => this.playSound(), 500);
+        setTimeout(() => this.playSound(), 1000);
+      }
+      throw new Error(`Whisper failed: ${result.status || ''} ${result.message || ''}`);
     }
+
+    return result.data;
   }
 
   async warmupConnections() {
     // Pre-warm HTTP connections to reduce latency on first real request
     try {
       const cookieString = this.getCookieString();
-      const headers = {
-        'Accept': 'application/json',
-        'Cookie': cookieString,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      };
 
-      // Warm up both endpoints in parallel for faster first request
+      // Make a lightweight request to establish keep-alive connection
       const warmupStart = Date.now();
-      await Promise.all([
-        fetch('https://www.pathofexile.com/api/trade2/data/leagues', { method: 'GET', headers }),
-        fetch('https://www.pathofexile.com/api/trade2/data/stats', { method: 'GET', headers }),
-      ]);
+      await fetch('https://www.pathofexile.com/api/trade2/data/leagues', {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Cookie': cookieString,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+      });
       const warmupTime = Date.now() - warmupStart;
-      this.log('INFO', `Connections warmed up in ${warmupTime}ms`);
+      this.log('INFO', `Connection warmed up in ${warmupTime}ms`);
     } catch (err) {
       this.log('WARN', `Connection warmup failed: ${err.message}`);
     }
@@ -141,54 +326,62 @@ export class TradeSniper extends EventEmitter {
     const { league } = this.config;
     const fetchUrl = `https://www.pathofexile.com/api/trade2/fetch/${itemIds.join(',')}?query=${queryId}&realm=poe2`;
 
-    // Use direct Node.js fetch for speed (bypasses Puppeteer overhead ~50-100ms savings)
-    const cookieString = this.getCookieString();
-    const fetchStart = Date.now();
+    // Make fetch request from page context to use cookies
+    const result = await page.evaluate(async (url) => {
+      try {
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'include',
+        });
 
-    const response = await fetch(fetchUrl, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-        'Cookie': cookieString,
-        'Origin': 'https://www.pathofexile.com',
-        'Referer': `https://www.pathofexile.com/trade2/search/poe2/${league}/${queryId}`,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      },
-    });
+        if (!response.ok) {
+          return { error: true, status: response.status };
+        }
 
-    if (!response.ok) {
-      throw new Error(`Fetch failed: ${response.status}`);
+        return await response.json();
+      } catch (err) {
+        return { error: true, message: err.message };
+      }
+    }, fetchUrl);
+
+    if (result.error) {
+      throw new Error(`Fetch failed: ${result.status || result.message}`);
     }
 
-    const result = await response.json();
-    const fetchTime = Date.now() - fetchStart;
-    this.log('DEBUG', `Direct fetch completed in ${fetchTime}ms`, queryId);
-
-    // Process items - SPEED IS CRITICAL: teleport first, log after
+    // Process items
     if (result.result && Array.isArray(result.result)) {
       for (const item of result.result) {
         const hideoutToken = item?.listing?.hideout_token;
 
         if (hideoutToken && !this.seenTokens.has(hideoutToken)) {
-          // Prevent unbounded memory growth
-          if (this.seenTokens.size >= MAX_SEEN_TOKENS) {
-            this.seenTokens.clear();
-          }
           this.seenTokens.add(hideoutToken);
-          const startTime = Date.now();
 
-          // Extract item info (needed for events)
+          const startTime = Date.now();
           const price = item.listing?.price
             ? `${item.listing.price.amount} ${item.listing.price.currency}`
             : 'No price';
           const itemName = item.item?.name || item.item?.typeLine || 'Unknown';
           const account = item.listing?.account?.name || 'Unknown';
 
-          // Check if paused - still emit listing but skip teleport
-          if (this.paused) {
+          this.log('INFO', `>>> DIRECT: ${itemName} @ ${price} from ${account} <<<`, queryId);
+
+          this.emit('listing', {
+            queryId,
+            queryName,
+            itemName,
+            price,
+            account,
+            hideoutToken,
+          });
+
+          // Check per-query pause state
+          const queryState = this.queryStates.get(queryId);
+          if (queryState?.status === 'paused') {
             this.log('INFO', `[PAUSED] ${itemName} @ ${price} from ${account}`, queryId);
-            this.emit('listing', { queryId, queryName, itemName, price, account, hideoutToken });
             continue;
           }
 
@@ -196,22 +389,21 @@ export class TradeSniper extends EventEmitter {
           const now = Date.now();
           const timeSinceLastTeleport = now - this.lastTeleportTime;
           if (timeSinceLastTeleport < this.teleportCooldownMs) {
-            // Still emit listing but skip teleport
             const remaining = Math.ceil((this.teleportCooldownMs - timeSinceLastTeleport) / 1000);
             this.log('WARN', `SKIPPED teleport (cooldown ${remaining}s remaining) - ${itemName}`, queryId);
-            this.emit('listing', { queryId, queryName, itemName, price, account, hideoutToken });
             continue;
           }
 
-          // Mark teleport time IMMEDIATELY to prevent race conditions
+          // Mark teleport time immediately to prevent race conditions
           this.lastTeleportTime = now;
 
-          // FIRE TELEPORT FIRST - this is the critical path
+          // Fire whisper immediately
           this.triggerWhisper(hideoutToken, page)
             .then(() => {
               const elapsed = Date.now() - startTime;
               this.log('SUCCESS', `TELEPORT in ${elapsed}ms (direct)`, queryId);
               this.emit('teleport', { queryId, elapsed, itemName, price });
+              this.playSound();
             })
             .catch((err) => {
               this.log('ERROR', `Whisper failed: ${err.message}`, queryId);
@@ -219,10 +411,6 @@ export class TradeSniper extends EventEmitter {
               // Reset cooldown on failure so next listing can try
               this.lastTeleportTime = 0;
             });
-
-          // Now emit listing event and log (non-blocking, happens after teleport is fired)
-          this.log('INFO', `>>> SNIPED: ${itemName} @ ${price} from ${account} <<<`, queryId);
-          this.emit('listing', { queryId, queryName, itemName, price, account, hideoutToken });
         }
       }
     }
@@ -289,13 +477,24 @@ export class TradeSniper extends EventEmitter {
         const data = JSON.parse(payload);
 
         if (data.new && Array.isArray(data.new) && data.new.length > 0) {
-          const itemIds = data.new;
+          // Filter out items already being processed to prevent race condition
+          const itemIds = data.new.filter(id => !this.processingIds.has(id));
+          if (itemIds.length === 0) return;
+
+          // Mark items as being processed
+          itemIds.forEach(id => this.processingIds.add(id));
+
           this.log('INFO', `WebSocket: ${itemIds.length} new item(s) - fetching directly...`, queryId);
 
           // Fetch items directly (faster than waiting for page to do it)
-          this.fetchItemsDirectly(itemIds, queryId, queryName, page).catch(err => {
-            this.log('DEBUG', `Direct fetch failed, falling back to page intercept: ${err.message}`, queryId);
-          });
+          this.fetchItemsDirectly(itemIds, queryId, queryName, page)
+            .catch(err => {
+              this.log('DEBUG', `Direct fetch failed, falling back to page intercept: ${err.message}`, queryId);
+            })
+            .finally(() => {
+              // Release processing lock
+              itemIds.forEach(id => this.processingIds.delete(id));
+            });
         }
       } catch (e) {
         // Not JSON or parse error - ignore, the response interceptor will handle it
@@ -311,8 +510,11 @@ export class TradeSniper extends EventEmitter {
 
     // Handle page close
     page.on('close', async () => {
-      if (this.running && this.pages.has(queryId)) {
+      const queryState = this.queryStates.get(queryId);
+      if (queryState && (queryState.status === 'running' || queryState.status === 'paused') && this.pages.has(queryId)) {
         this.log('WARN', 'Page closed unexpectedly', queryId);
+        queryState.connected = false;
+        this.emit('query-state-change', { queryId, status: queryState.status, connected: false });
         this.emit('disconnected', { queryId });
         await this.reconnectQuery(queryId, queryName);
       }
@@ -328,6 +530,14 @@ export class TradeSniper extends EventEmitter {
 
     page.on('request', (request) => {
       const url = request.url();
+      const resourceType = request.resourceType();
+
+      // Block unnecessary resources to speed up page load
+      if (['image', 'font', 'media'].includes(resourceType)) {
+        request.abort();
+        return;
+      }
+
       // Log trade API requests
       if (url.includes('/api/trade2/')) {
         this.log('DEBUG', `Request: ${url}`, queryId);
@@ -348,30 +558,35 @@ export class TradeSniper extends EventEmitter {
           const data = await response.json();
           this.log('DEBUG', `Fetch response: ${data.result?.length || 0} items`, queryId);
 
-          // Process items - SPEED IS CRITICAL: teleport first, log after
           if (data.result && Array.isArray(data.result)) {
             for (const item of data.result) {
               const hideoutToken = item?.listing?.hideout_token;
 
               if (hideoutToken && !this.seenTokens.has(hideoutToken)) {
-                // Prevent unbounded memory growth
-                if (this.seenTokens.size >= MAX_SEEN_TOKENS) {
-                  this.seenTokens.clear();
-                }
                 this.seenTokens.add(hideoutToken);
-                const startTime = Date.now();
 
-                // Extract item info (needed for events)
+                const startTime = Date.now();
                 const price = item.listing?.price
                   ? `${item.listing.price.amount} ${item.listing.price.currency}`
                   : 'No price';
                 const itemName = item.item?.name || item.item?.typeLine || 'Unknown';
                 const account = item.listing?.account?.name || 'Unknown';
 
-                // Check if paused - still emit listing but skip teleport
-                if (this.paused) {
+                this.log('INFO', `>>> NEW LISTING: ${itemName} @ ${price} from ${account} <<<`, queryId);
+
+                this.emit('listing', {
+                  queryId,
+                  queryName,
+                  itemName,
+                  price,
+                  account,
+                  hideoutToken,
+                });
+
+                // Check per-query pause state
+                const queryState = this.queryStates.get(queryId);
+                if (queryState?.status === 'paused') {
                   this.log('INFO', `[PAUSED] ${itemName} @ ${price} from ${account}`, queryId);
-                  this.emit('listing', { queryId, queryName, itemName, price, account, hideoutToken });
                   continue;
                 }
 
@@ -379,22 +594,21 @@ export class TradeSniper extends EventEmitter {
                 const now = Date.now();
                 const timeSinceLastTeleport = now - this.lastTeleportTime;
                 if (timeSinceLastTeleport < this.teleportCooldownMs) {
-                  // Still emit listing but skip teleport
                   const remaining = Math.ceil((this.teleportCooldownMs - timeSinceLastTeleport) / 1000);
                   this.log('WARN', `SKIPPED teleport (cooldown ${remaining}s remaining) - ${itemName}`, queryId);
-                  this.emit('listing', { queryId, queryName, itemName, price, account, hideoutToken });
                   continue;
                 }
 
-                // Mark teleport time IMMEDIATELY to prevent race conditions
+                // Mark teleport time immediately to prevent race conditions
                 this.lastTeleportTime = now;
 
-                // FIRE TELEPORT FIRST - this is the critical path
+                // Fire and forget whisper to minimize latency - use page context for auth
                 this.triggerWhisper(hideoutToken, page)
                   .then(() => {
                     const elapsed = Date.now() - startTime;
-                    this.log('SUCCESS', `TELEPORT in ${elapsed}ms`, queryId);
+                    this.log('SUCCESS', `TELEPORT TRIGGERED in ${elapsed}ms!`, queryId);
                     this.emit('teleport', { queryId, elapsed, itemName, price });
+                    this.playSound();
                   })
                   .catch((err) => {
                     this.log('ERROR', `Whisper failed: ${err.message}`, queryId);
@@ -402,10 +616,6 @@ export class TradeSniper extends EventEmitter {
                     // Reset cooldown on failure so next listing can try
                     this.lastTeleportTime = 0;
                   });
-
-                // Now emit listing event and log (non-blocking, happens after teleport is fired)
-                this.log('INFO', `>>> SNIPED: ${itemName} @ ${price} from ${account} <<<`, queryId);
-                this.emit('listing', { queryId, queryName, itemName, price, account, hideoutToken });
               }
             }
           }
@@ -442,7 +652,6 @@ export class TradeSniper extends EventEmitter {
       await new Promise(resolve => setTimeout(resolve, 500));
 
       this.log('SUCCESS', 'Live search connected', queryId);
-      this.emit('connected', { queryId, queryName });
 
       // Update page state
       const pageState = this.pages.get(queryId);
@@ -450,6 +659,15 @@ export class TradeSniper extends EventEmitter {
         pageState.connected = true;
         pageState.reconnectAttempts = 0;
       }
+
+      // Update query state
+      const queryState = this.queryStates.get(queryId);
+      if (queryState) {
+        queryState.connected = true;
+        this.emit('query-state-change', { queryId, status: queryState.status, connected: true });
+      }
+
+      this.emit('connected', { queryId, queryName });
 
       return true;
     } catch (err) {
@@ -460,7 +678,9 @@ export class TradeSniper extends EventEmitter {
   }
 
   async reconnectQuery(queryId, queryName) {
-    if (!this.running) return;
+    // Check if this specific query should still be running
+    const queryState = this.queryStates.get(queryId);
+    if (!queryState || queryState.status === 'stopped') return;
 
     const pageState = this.pages.get(queryId);
     if (!pageState) return;
@@ -468,9 +688,16 @@ export class TradeSniper extends EventEmitter {
     pageState.connected = false;
     pageState.reconnectAttempts++;
 
+    // Update query state connected status
+    queryState.connected = false;
+    this.emit('query-state-change', { queryId, status: queryState.status, connected: false });
+
     if (pageState.reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
       this.log('ERROR', `Max reconnect attempts reached for ${queryId}. Giving up.`, queryId);
       this.emit('error', { queryId, error: 'Max reconnect attempts reached' });
+      // Mark query as stopped on max reconnect failure
+      this.queryStates.set(queryId, { status: 'stopped', connected: false });
+      this.emit('query-state-change', { queryId, status: 'stopped', connected: false });
       return;
     }
 
@@ -479,7 +706,9 @@ export class TradeSniper extends EventEmitter {
 
     await new Promise(resolve => setTimeout(resolve, RECONNECT_DELAY_MS));
 
-    if (!this.running) return;
+    // Re-check if query should still be running after delay
+    const currentState = this.queryStates.get(queryId);
+    if (!currentState || currentState.status === 'stopped') return;
 
     try {
       // Close old page if it exists
@@ -549,7 +778,7 @@ export class TradeSniper extends EventEmitter {
     this.emit('status-change', { running: true });
 
     this.log('INFO', '='.repeat(60));
-    this.log('INFO', 'Divinge Starting');
+    this.log('INFO', 'Divinedge Starting');
     this.log('INFO', `League: ${decodeURIComponent(league)}`);
     this.log('INFO', `Monitoring ${queries.length} search(es): ${queries.map(q => q.id || q).join(', ')}`);
     this.log('INFO', '='.repeat(60));
@@ -576,7 +805,24 @@ export class TradeSniper extends EventEmitter {
           '--disable-dev-shm-usage',
           '--disable-accelerated-2d-canvas',
           '--no-first-run',
-          '--disable-blink-features=AutomationControlled', // Hide automation
+          '--disable-blink-features=AutomationControlled',
+          // Disable throttling for background tabs
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding',
+          // Additional performance flags
+          '--disable-hang-monitor',
+          '--disable-ipc-flooding-protection',
+          '--disable-popup-blocking',
+          '--disable-prompt-on-repost',
+          '--disable-sync',
+          '--disable-translate',
+          '--disable-extensions',
+          '--disable-default-apps',
+          '--disable-client-side-phishing-detection',
+          '--disable-component-update',
+          '--no-default-browser-check',
+          '--disable-features=TranslateUI,OptimizationHints,UseEcoQoSForBackgroundProcess',
         ],
       };
 
@@ -608,6 +854,10 @@ export class TradeSniper extends EventEmitter {
       const startPromises = queries.map(async (query) => {
         const queryId = typeof query === 'string' ? query : query.id;
         const queryName = typeof query === 'string' ? query : (query.name || query.id);
+
+        // Initialize query state
+        this.queryStates.set(queryId, { status: 'running', connected: false });
+        this.emit('query-state-change', { queryId, status: 'running', connected: false });
 
         const page = await this.setupPage(queryId, queryName);
         if (!page) return;
@@ -658,6 +908,7 @@ export class TradeSniper extends EventEmitter {
       }
     }
     this.pages.clear();
+    this.queryStates.clear();
 
     // Close browser - try gracefully first, then force kill
     if (this.browser) {
@@ -680,6 +931,7 @@ export class TradeSniper extends EventEmitter {
     }
 
     this.seenTokens.clear();
+    this.processingIds.clear();
 
     this.emit('status-change', { running: false });
     this.log('INFO', 'Sniper stopped.');

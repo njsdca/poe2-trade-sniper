@@ -1,10 +1,10 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain, Notification, nativeImage, dialog, globalShortcut } from 'electron';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFile, writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
 import electronUpdater from 'electron-updater';
 import player from 'play-sound';
-import { autoPurchase } from './src/auto-purchase.js';
 
 const { autoUpdater } = electronUpdater;
 
@@ -16,9 +16,10 @@ let tray = null;
 let sniper = null;
 let sniperRunning = false;
 let cookieExtractor = null;
+let browserPid = null; // Track browser PID for clean shutdown
 
 // Use userData directory for config (writable location)
-// This resolves to: Windows: %APPDATA%\Divinge, macOS: ~/Library/Application Support/Divinge
+// This resolves to: Windows: %APPDATA%\Divinedge, macOS: ~/Library/Application Support/Divinedge
 const getConfigPath = () => join(app.getPath('userData'), 'config.json');
 const getBrowserProfilePath = () => join(app.getPath('userData'), 'browser-profile');
 const soundPlayer = player({});
@@ -30,19 +31,19 @@ const defaultConfig = {
   league: 'Fate%20of%20the%20Vaal',
   queries: [],
   soundEnabled: true,
+  soundFile: 'alert.wav',
   startMinimized: false,
   autoStart: false,
-  autoPurchase: false, // Auto-purchase items after teleport
   reconnectDelayMs: 5000,
   fetchDelayMs: 100,
   teleportCooldownMs: 5000, // 5 second cooldown between teleports
 };
 
-function loadConfig() {
+async function loadConfig() {
   const configPath = getConfigPath();
   try {
     if (existsSync(configPath)) {
-      const data = JSON.parse(readFileSync(configPath, 'utf-8'));
+      const data = JSON.parse(await readFile(configPath, 'utf-8'));
       return { ...defaultConfig, ...data };
     }
   } catch (e) {
@@ -51,10 +52,10 @@ function loadConfig() {
   return { ...defaultConfig };
 }
 
-function saveConfig(config) {
+async function saveConfig(config) {
   const configPath = getConfigPath();
   try {
-    writeFileSync(configPath, JSON.stringify(config, null, 2));
+    await writeFile(configPath, JSON.stringify(config, null, 2));
     return true;
   } catch (e) {
     console.error('Failed to save config:', e);
@@ -74,18 +75,28 @@ function showNotification(title, body) {
   }
 }
 
-function playAlertSound() {
-  const config = loadConfig();
-  if (!config.soundEnabled) return;
+async function playAlertSound() {
+  const config = await loadConfig();
+  if (!config.soundEnabled || config.soundFile === 'none') return;
 
-  // Sound is primarily handled by renderer's Web Audio API
-  // This is a fallback for system notifications
-  const soundPath = join(__dirname, 'alert.wav');
-  if (existsSync(soundPath)) {
-    soundPlayer.play(soundPath, (err) => {
-      if (err) console.error('Failed to play sound:', err);
-    });
+  const soundPath = join(__dirname, config.soundFile);
+  if (!existsSync(soundPath)) {
+    // Try default alert.wav
+    const defaultPath = join(__dirname, 'alert.wav');
+    if (existsSync(defaultPath)) {
+      soundPlayer.play(defaultPath, (err) => {
+        if (err) console.error('Failed to play sound:', err);
+      });
+    } else {
+      // Terminal bell as fallback
+      process.stdout.write('\x07');
+    }
+    return;
   }
+
+  soundPlayer.play(soundPath, (err) => {
+    if (err) console.error('Failed to play sound:', err);
+  });
 }
 
 function updateTrayMenu() {
@@ -123,19 +134,19 @@ function updateTrayMenu() {
   ]);
 
   tray.setContextMenu(contextMenu);
-  tray.setToolTip(sniperRunning ? 'Divinge - Running' : 'Divinge - Stopped');
+  tray.setToolTip(sniperRunning ? 'Divinedge - Running' : 'Divinedge - Stopped');
 }
 
 async function startSniper() {
   if (sniperRunning) return;
 
-  const config = loadConfig();
+  const config = await loadConfig();
 
   // Dynamic import for ES module
   const { TradeSniper } = await import('./src/sniper.js');
 
   sniper = new TradeSniper(config, {
-    soundFilePath: join(__dirname, 'alert.wav'),
+    soundFilePath: join(__dirname, config.soundFile || 'alert.wav'),
     browserProfilePath: getBrowserProfilePath(),
   });
 
@@ -149,23 +160,8 @@ async function startSniper() {
     showNotification('New Listing!', `${data.itemName} @ ${data.price}`);
   });
 
-  sniper.on('teleport', async (data) => {
+  sniper.on('teleport', (data) => {
     sendToRenderer('teleport', data);
-
-    // Auto-purchase if enabled
-    const currentConfig = loadConfig();
-    if (currentConfig.autoPurchase) {
-      try {
-        const result = await autoPurchase();
-        if (result.success) {
-          sendToRenderer('log', { level: 'SUCCESS', message: `Auto-purchased item at (${result.position.x}, ${result.position.y})` });
-        } else {
-          sendToRenderer('log', { level: 'WARN', message: `Auto-purchase failed: ${result.reason}` });
-        }
-      } catch (err) {
-        sendToRenderer('log', { level: 'ERROR', message: `Auto-purchase error: ${err.message}` });
-      }
-    }
   });
 
   sniper.on('connected', (data) => {
@@ -193,9 +189,26 @@ async function startSniper() {
     sniperRunning = data.running;
     sendToRenderer('status-change', data);
     updateTrayMenu();
+    // Clear browser PID when sniper stops
+    if (!data.running) {
+      browserPid = null;
+    }
+  });
+
+  sniper.on('query-state-change', (data) => {
+    sendToRenderer('query-state-change', data);
   });
 
   await sniper.start();
+
+  // Capture browser PID for clean shutdown
+  if (sniper.browser) {
+    const proc = sniper.browser.process();
+    if (proc) {
+      browserPid = proc.pid;
+      console.log(`Browser PID: ${browserPid}`);
+    }
+  }
 }
 
 async function stopSniper() {
@@ -204,40 +217,35 @@ async function stopSniper() {
     sniper = null;
   }
   sniperRunning = false;
+  browserPid = null;
   sendToRenderer('status-change', { running: false });
   updateTrayMenu();
 }
 
-function createWindow() {
-  const config = loadConfig();
+async function createWindow() {
+  const config = await loadConfig();
 
   // Remove the default menu bar (File, Edit, View, etc.)
   Menu.setApplicationMenu(null);
 
   mainWindow = new BrowserWindow({
-    width: 900,
-    height: 820,
-    minWidth: 900,
-    minHeight: 820,
-    maxWidth: 900,
-    maxHeight: 820,
-    resizable: false,
+    width: 1150,
+    height: 700,
+    minWidth: 950,
+    minHeight: 600,
+    frame: false, // Custom title bar
+    titleBarStyle: 'hidden', // For macOS
     icon: join(__dirname, 'assets', 'icon.ico'),
+    backgroundColor: '#0d0d0d',
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
     },
     show: false,
   });
 
   mainWindow.loadFile(join(__dirname, 'src', 'renderer', 'index.html'));
-
-  // Open DevTools in development mode
-  if (!app.isPackaged) {
-    mainWindow.webContents.openDevTools();
-  }
 
   mainWindow.once('ready-to-show', () => {
     // Show window unless startMinimized is enabled
@@ -308,12 +316,36 @@ function registerHotkeys() {
 }
 
 // IPC Handlers
-ipcMain.handle('get-config', () => {
-  return loadConfig();
+// Window control handlers
+ipcMain.handle('window-minimize', () => {
+  if (mainWindow) mainWindow.minimize();
 });
 
-ipcMain.handle('check-setup-complete', () => {
-  const config = loadConfig();
+ipcMain.handle('window-maximize', () => {
+  if (mainWindow) {
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize();
+    } else {
+      mainWindow.maximize();
+    }
+  }
+  return mainWindow?.isMaximized() ?? false;
+});
+
+ipcMain.handle('window-close', () => {
+  if (mainWindow) mainWindow.close();
+});
+
+ipcMain.handle('window-is-maximized', () => {
+  return mainWindow?.isMaximized() ?? false;
+});
+
+ipcMain.handle('get-config', async () => {
+  return await loadConfig();
+});
+
+ipcMain.handle('check-setup-complete', async () => {
+  const config = await loadConfig();
   return {
     complete: Boolean(config.poesessid) && config.queries?.length > 0,
     hasAuth: Boolean(config.poesessid),
@@ -321,74 +353,8 @@ ipcMain.handle('check-setup-complete', () => {
   };
 });
 
-ipcMain.handle('save-config', (event, config) => {
-  return saveConfig(config);
-});
-
-// Export searches to a JSON file
-ipcMain.handle('export-searches', async (event, searches) => {
-  try {
-    const result = await dialog.showSaveDialog(mainWindow, {
-      title: 'Export Searches',
-      defaultPath: 'divinge-searches.json',
-      filters: [
-        { name: 'JSON Files', extensions: ['json'] },
-        { name: 'All Files', extensions: ['*'] }
-      ]
-    });
-
-    if (result.canceled || !result.filePath) {
-      return { success: false, canceled: true };
-    }
-
-    const exportData = {
-      version: app.getVersion(),
-      exportedAt: new Date().toISOString(),
-      searches: searches
-    };
-
-    writeFileSync(result.filePath, JSON.stringify(exportData, null, 2));
-    return { success: true, filePath: result.filePath };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
-});
-
-// Import searches from a JSON file
-ipcMain.handle('import-searches', async () => {
-  try {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: 'Import Searches',
-      filters: [
-        { name: 'JSON Files', extensions: ['json'] },
-        { name: 'All Files', extensions: ['*'] }
-      ],
-      properties: ['openFile']
-    });
-
-    if (result.canceled || result.filePaths.length === 0) {
-      return { success: false, canceled: true };
-    }
-
-    const fileContent = readFileSync(result.filePaths[0], 'utf-8');
-    const importData = JSON.parse(fileContent);
-
-    // Validate the import data
-    if (!importData.searches || !Array.isArray(importData.searches)) {
-      return { success: false, error: 'Invalid file format: missing searches array' };
-    }
-
-    // Validate each search has required fields
-    for (const search of importData.searches) {
-      if (!search.id) {
-        return { success: false, error: 'Invalid file format: search missing id' };
-      }
-    }
-
-    return { success: true, searches: importData.searches, version: importData.version };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
+ipcMain.handle('save-config', async (event, config) => {
+  return await saveConfig(config);
 });
 
 ipcMain.handle('start-sniper', async () => {
@@ -401,16 +367,90 @@ ipcMain.handle('stop-sniper', async () => {
   return !sniperRunning;
 });
 
-ipcMain.handle('toggle-pause', async (event, paused) => {
-  if (sniper) {
-    sniper.setPaused(paused);
-    return { success: true, paused };
-  }
-  return { success: false, error: 'Sniper not running' };
-});
-
 ipcMain.handle('get-status', () => {
   return { running: sniperRunning };
+});
+
+// Per-query control handlers
+ipcMain.handle('start-query', async (event, queryId) => {
+  // Initialize sniper if not running (use TradeSniper for browser-based approach)
+  if (!sniper) {
+    const config = await loadConfig();
+    const { TradeSniper } = await import('./src/sniper.js');
+    sniper = new TradeSniper(config, {
+      soundFilePath: join(__dirname, config.soundFile || 'alert.wav'),
+      browserProfilePath: getBrowserProfilePath(),
+    });
+
+    // Forward events to renderer
+    sniper.on('log', (data) => sendToRenderer('log', data));
+    sniper.on('listing', (data) => {
+      sendToRenderer('listing', data);
+      showNotification('New Listing!', `${data.itemName} @ ${data.price}`);
+    });
+    sniper.on('teleport', (data) => sendToRenderer('teleport', data));
+    sniper.on('connected', (data) => sendToRenderer('connected', data));
+    sniper.on('disconnected', (data) => sendToRenderer('disconnected', data));
+    sniper.on('reconnecting', (data) => sendToRenderer('reconnecting', data));
+    sniper.on('error', (data) => sendToRenderer('error', data));
+    sniper.on('cookie-expired', () => {
+      sendToRenderer('cookie-expired', {});
+      showNotification('Cookie Expired!', 'Please update your cf_clearance cookie');
+    });
+    sniper.on('status-change', (data) => {
+      sniperRunning = data.running;
+      sendToRenderer('status-change', data);
+      updateTrayMenu();
+    });
+    sniper.on('query-state-change', (data) => {
+      sendToRenderer('query-state-change', data);
+    });
+  }
+
+  await sniper.startQuery(queryId);
+  return { success: true };
+});
+
+ipcMain.handle('stop-query', async (event, queryId) => {
+  if (sniper) {
+    await sniper.stopQuery(queryId);
+  }
+  return { success: true };
+});
+
+ipcMain.handle('pause-query', async (event, queryId) => {
+  if (sniper) {
+    sniper.pauseQuery(queryId);
+  }
+  return { success: true };
+});
+
+ipcMain.handle('resume-query', async (event, queryId) => {
+  if (sniper) {
+    sniper.resumeQuery(queryId);
+  }
+  return { success: true };
+});
+
+ipcMain.handle('get-query-states', async () => {
+  if (sniper) {
+    return sniper.getAllQueryStates();
+  }
+  return {};
+});
+
+ipcMain.handle('pause-all', async () => {
+  if (sniper) {
+    sniper.setPaused(true);
+  }
+  return { success: true };
+});
+
+ipcMain.handle('resume-all', async () => {
+  if (sniper) {
+    sniper.setPaused(false);
+  }
+  return { success: true };
 });
 
 ipcMain.handle('test-sound', () => {
@@ -418,43 +458,51 @@ ipcMain.handle('test-sound', () => {
   return { success: true };
 });
 
-ipcMain.handle('test-auto-purchase', async () => {
+ipcMain.handle('export-searches', async (event, data) => {
   try {
-    const { autoPurchase } = await import('./src/auto-purchase.js');
-    const result = await autoPurchase();
-    return result;
-  } catch (err) {
-    console.error('Test auto-purchase error:', err);
-    return { success: false, reason: err.message };
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export Searches',
+      defaultPath: 'divinge-searches.json',
+      filters: [{ name: 'JSON Files', extensions: ['json'] }]
+    });
+
+    if (result.canceled || !result.filePath) {
+      return { cancelled: true };
+    }
+
+    writeFileSync(result.filePath, JSON.stringify(data, null, 2));
+    return { success: true, path: result.filePath };
+  } catch (error) {
+    return { success: false, error: error.message };
   }
 });
 
-ipcMain.handle('debug-auto-purchase', async () => {
+ipcMain.handle('import-searches', async () => {
   try {
-    const { debugHighlightDetection } = await import('./src/auto-purchase.js');
-    const bounds = await debugHighlightDetection();
-    const debugPath = join(app.getPath('desktop'), 'divinge-debug-highlight.png');
-    return { success: true, path: debugPath, bounds };
-  } catch (err) {
-    console.error('Debug auto-purchase error:', err);
-    return { success: false, error: err.message };
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Import Searches',
+      filters: [{ name: 'JSON Files', extensions: ['json'] }],
+      properties: ['openFile']
+    });
+
+    if (result.canceled || !result.filePaths.length) {
+      return { cancelled: true };
+    }
+
+    const content = readFileSync(result.filePaths[0], 'utf-8');
+    const data = JSON.parse(content);
+    return { success: true, data };
+  } catch (error) {
+    return { success: false, error: error.message };
   }
 });
 
 // Economy API proxy to avoid CORS
-const ALLOWED_API_DOMAINS = ['poe2scout.com'];
-
 ipcMain.handle('fetch-economy', async (event, url) => {
   try {
-    // Validate URL to prevent SSRF attacks
-    const parsedUrl = new URL(url);
-    if (!ALLOWED_API_DOMAINS.some(domain => parsedUrl.hostname.endsWith(domain))) {
-      throw new Error('Invalid API domain');
-    }
-
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'Divinge/1.0 (contact@divinge.app)',
+        'User-Agent': 'Divinedge/1.0 (contact@divinedge.app)',
         'Accept': 'application/json',
       },
     });
@@ -470,15 +518,15 @@ ipcMain.handle('fetch-economy', async (event, url) => {
   }
 });
 
-ipcMain.handle('fetch-item-history', async (event, itemId, logCount = 200) => {
+// Fetch extended item price history
+ipcMain.handle('fetch-item-history', async (event, itemId, logCount = 100) => {
   try {
-    const config = loadConfig();
-    const league = config.league || 'Fate%20of%20the%20Vaal';
-    const url = `https://poe2scout.com/api/items/${itemId}/history?league=${league}&logCount=${logCount}`;
+    const league = encodeURIComponent('Fate of the Vaal');
+    const url = `https://poe2scout.com/api/items/history/${itemId}?logCount=${logCount}&league=${league}`;
 
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'Divinge/1.0 (contact@divinge.app)',
+        'User-Agent': 'Divinedge/1.0 (contact@divinedge.app)',
         'Accept': 'application/json',
       },
     });
@@ -488,7 +536,7 @@ ipcMain.handle('fetch-item-history', async (event, itemId, logCount = 200) => {
     }
 
     const data = await response.json();
-    return { success: true, data: data.price_history || [], hasMore: data.has_more };
+    return { success: true, data };
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -514,12 +562,12 @@ ipcMain.handle('extract-cookies', async () => {
     cookieExtractor = null;
 
     // Auto-save cookies to config (as backup, but profile has them now)
-    const config = loadConfig();
+    const config = await loadConfig();
     config.poesessid = cookies.poesessid;
     if (cookies.cf_clearance) {
       config.cf_clearance = cookies.cf_clearance;
     }
-    saveConfig(config);
+    await saveConfig(config);
 
     return { success: true, cookies };
   } catch (error) {
@@ -536,8 +584,8 @@ ipcMain.handle('cancel-cookie-extract', async () => {
   return { success: true };
 });
 
-// Auto-updater setup
-autoUpdater.autoDownload = false;
+// Auto-updater setup - seamless background updates
+autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
 
 autoUpdater.on('checking-for-update', () => {
@@ -622,16 +670,25 @@ ipcMain.handle('install-update', async () => {
     cookieExtractor = null;
   }
 
-  // Force kill any remaining Chrome/Edge processes spawned by this app
-  // This is Windows-specific but handles the case where browser.close() fails
-  if (process.platform === 'win32') {
+  // Force kill browser process spawned by this app using tracked PID
+  // This is safer than killing all Chrome/Edge processes
+  if (process.platform === 'win32' && browserPid) {
     try {
-      // Kill Chrome processes that might be hanging
-      await execAsync('taskkill /F /IM chrome.exe /T').catch(() => {});
-      await execAsync('taskkill /F /IM msedge.exe /T').catch(() => {});
-      console.log('Force killed browser processes');
+      // Kill only the browser process tree we spawned
+      await execAsync(`taskkill /F /PID ${browserPid} /T`).catch(() => {});
+      console.log(`Force killed browser process tree (PID: ${browserPid})`);
+      browserPid = null;
     } catch (e) {
-      // Ignore - processes might not exist
+      // Ignore - process might not exist
+    }
+  } else if (process.platform === 'darwin' && browserPid) {
+    try {
+      // On macOS, kill the process group
+      process.kill(-browserPid, 'SIGKILL');
+      console.log(`Force killed browser process tree (PID: ${browserPid})`);
+      browserPid = null;
+    } catch (e) {
+      // Ignore - process might not exist
     }
   }
 
@@ -661,8 +718,8 @@ ipcMain.handle('install-update', async () => {
 
   console.log('Calling quitAndInstall...');
 
-  // Force quit and install - use isSilent=false, isForceRunAfter=true
-  autoUpdater.quitAndInstall(false, true);
+  // Silent quit and install - isSilent=true for no installer UI, isForceRunAfter=true to restart app
+  autoUpdater.quitAndInstall(true, true);
 });
 
 ipcMain.handle('get-app-version', () => {

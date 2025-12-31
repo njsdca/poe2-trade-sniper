@@ -25,8 +25,6 @@ const autoStartCheckbox = document.getElementById('autoStart');
 const autoPurchaseCheckbox = document.getElementById('autoPurchase');
 const saveConfigBtn = document.getElementById('saveConfigBtn');
 const testSoundBtn = document.getElementById('testSoundBtn');
-const testAutoPurchaseBtn = document.getElementById('testAutoPurchaseBtn');
-const debugAutoPurchaseBtn = document.getElementById('debugAutoPurchaseBtn');
 
 // DOM Elements - Searches Tab
 const urlInputRow = document.getElementById('urlInputRow');
@@ -761,45 +759,6 @@ function testSound() {
   testSoundEffect();
 }
 
-async function testAutoPurchase() {
-  addLogEntry('info', 'Testing auto-purchase... Open merchant window with highlighted item first!');
-  testAutoPurchaseBtn.disabled = true;
-  testAutoPurchaseBtn.textContent = 'Testing...';
-
-  const result = await window.api.testAutoPurchase();
-
-  testAutoPurchaseBtn.disabled = false;
-  testAutoPurchaseBtn.innerHTML = '<svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Test';
-
-  if (result.success) {
-    addLogEntry('success', `Auto-purchase test succeeded! Clicked at (${result.position.x}, ${result.position.y})`);
-  } else {
-    addLogEntry('error', `Auto-purchase test failed: ${result.reason}`);
-  }
-}
-
-async function debugAutoPurchase() {
-  addLogEntry('info', 'Capturing debug screenshot...');
-  debugAutoPurchaseBtn.disabled = true;
-  debugAutoPurchaseBtn.textContent = 'Saving...';
-
-  const result = await window.api.debugAutoPurchase();
-
-  debugAutoPurchaseBtn.disabled = false;
-  debugAutoPurchaseBtn.textContent = 'Debug';
-
-  if (result.success) {
-    addLogEntry('success', `Debug image saved to: ${result.path}`);
-    if (result.bounds) {
-      addLogEntry('info', `Found ${result.bounds.pixelCount} highlight pixels at (${result.bounds.centerX}, ${result.bounds.centerY})`);
-    } else {
-      addLogEntry('warn', 'No highlight pixels detected in screenshot');
-    }
-  } else {
-    addLogEntry('error', `Debug failed: ${result.error}`);
-  }
-}
-
 // ========================================
 // Updates
 // ========================================
@@ -851,8 +810,6 @@ function setupEventListeners() {
   // Config buttons
   saveConfigBtn.addEventListener('click', saveConfig);
   testSoundBtn.addEventListener('click', testSound);
-  testAutoPurchaseBtn.addEventListener('click', testAutoPurchase);
-  debugAutoPurchaseBtn.addEventListener('click', debugAutoPurchase);
 
   // Search buttons
   addSearchBtn.addEventListener('click', addSearch);

@@ -1,6 +1,6 @@
 {
   "name": "divinge",
-  "version": "1.9.15",
+  "version": "2.4.0",
   "description": "Divinge - Monitor live searches and auto-teleport to sellers",
   "main": "main.js",
   "type": "module",
@@ -17,12 +17,9 @@
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.1.2",
-    "@nut-tree-fork/nut-js": "^4.2.6",
     "electron-updater": "^6.6.2",
-    "jimp": "^1.6.0",
     "play-sound": "^1.1.6",
     "puppeteer-core": "^24.34.0",
-    "screenshot-desktop": "^1.15.3",
     "ws": "^8.18.0"
   },
   "engines": {
@@ -44,17 +41,20 @@
       "assets/**/*",
       "node_modules/**/*"
     ],
-    "asarUnpack": [
-      "node_modules/screenshot-desktop/**/*",
-      "node_modules/@nut-tree-fork/**/*"
-    ],
     "win": {
-      "target": "nsis",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
       "icon": "assets/icon.ico"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": true,
+      "runAfterFinish": true
     },
     "publish": {
       "provider": "github",
