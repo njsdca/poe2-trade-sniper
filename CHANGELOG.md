@@ -2,6 +2,14 @@
 
 All notable changes to Divinge will be documented in this file.
 
+## [3.0.3] - 2025-12-31
+
+### Fixed
+
+- **Rate Limit Fixes**: Increased minimum sync interval to 30 minutes. Rate limit state is now saved immediately when hit (was only saving on successful sync, causing repeated rate limit hits).
+
+---
+
 ## [3.0.2] - 2025-12-31
 
 ### Fixed

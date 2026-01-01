@@ -19,8 +19,8 @@ const RARITY_COLORS = {
   5: 0xAA9E82,  // Currency - tan
 };
 
-// Minimum time between API calls (GGG rate limit is ~15 requests per 3 hours = 12 min each)
-const MIN_FETCH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes to be safe
+// Minimum time between API calls (GGG rate limit is strict on history endpoint)
+const MIN_FETCH_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes to be safe
 
 export class TradeHistory extends EventEmitter {
   constructor(config, options = {}) {
@@ -94,8 +94,10 @@ export class TradeHistory extends EventEmitter {
         const retryAfter = parseInt(response.headers.get('retry-after') || '3600', 10);
         console.log(`[TradeHistory] Rate limited - retry after ${retryAfter}s`);
         this.rateLimitedUntil = Date.now() + (retryAfter * 1000);
-        this.emit('rate-limited', { retryAfter });
         this.loading = false;
+        // Save immediately so rate limit persists
+        await this.saveToDisk();
+        this.emit('rate-limited', { retryAfter });
         return null;
       }
 
