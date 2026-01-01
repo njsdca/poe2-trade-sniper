@@ -80,6 +80,12 @@ contextBridge.exposeInMainWorld('api', {
   installUpdate: () => ipcRenderer.invoke('install-update'),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 
+  // Trade History
+  getTradeHistory: () => ipcRenderer.invoke('get-trade-history'),
+  refreshTradeHistory: () => ipcRenderer.invoke('refresh-trade-history'),
+  saveDiscordWebhook: (options) => ipcRenderer.invoke('save-discord-webhook', options),
+  testDiscordWebhook: (options) => ipcRenderer.invoke('test-discord-webhook', options),
+
   // Event listeners (with cleanup support)
   onLog: (callback) => registerListener('log', callback),
   onListing: (callback) => registerListener('listing', callback),
@@ -94,6 +100,13 @@ contextBridge.exposeInMainWorld('api', {
   onCookieExtractStatus: (callback) => registerListener('cookie-extract-status', callback),
   onUpdateStatus: (callback) => registerListener('update-status', callback),
   onHotkey: (callback) => registerListener('hotkey', callback),
+
+  // Trade History event listeners
+  onTradeHistoryLoaded: (callback) => registerListener('trade-history-loaded', callback),
+  onTradeHistoryUpdated: (callback) => registerListener('trade-history-updated', callback),
+  onTradeHistoryNewSale: (callback) => registerListener('trade-history-new-sale', callback),
+  onTradeHistoryError: (callback) => registerListener('trade-history-error', callback),
+  onTradeHistoryRateLimited: (callback) => registerListener('trade-history-rate-limited', callback),
 
   // Listener cleanup methods
   removeListener: (channel) => removeListener(channel),

@@ -1,6 +1,6 @@
 {
   "name": "divinge",
-  "version": "2.4.0",
+  "version": "3.0.1",
   "description": "Divinge - Monitor live searches and auto-teleport to sellers",
   "main": "main.js",
   "type": "module",
@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.1.2",
+    "canvas": "^3.2.0",
     "electron-updater": "^6.6.2",
     "play-sound": "^1.1.6",
     "puppeteer-core": "^24.34.0",
@@ -45,7 +46,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "assets/icon.ico"

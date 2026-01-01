@@ -8,487 +8,691 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="app">
-    <!-- Login Overlay - Shows on every app launch -->
-    <div id="loginOverlay" class="login-overlay">
-      <div class="login-container">
-        <div class="login-content">
-          <div class="login-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
-              <polyline points="10 17 15 12 10 7"/>
-              <line x1="15" y1="12" x2="3" y2="12"/>
-            </svg>
-          </div>
-          <h2>Connect to Path of Exile</h2>
-          <p>A browser window will open for you to log in. This is required each time you start the app.</p>
+  <!-- Custom Title Bar -->
+  <div class="titlebar">
+    <div class="titlebar-drag">
+      <svg class="titlebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/>
+        <line x1="12" y1="22" x2="12" y2="15.5"/>
+        <polyline points="22 8.5 12 15.5 2 8.5"/>
+      </svg>
+      <span class="titlebar-title">Divinge</span>
+    </div>
+    <div class="titlebar-controls">
+      <button class="titlebar-btn minimize" id="minimizeBtn" title="Minimize">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+      </button>
+      <button class="titlebar-btn maximize" id="maximizeBtn" title="Maximize">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="4" y="4" width="16" height="16" rx="1"/>
+        </svg>
+      </button>
+      <button class="titlebar-btn close" id="closeBtn" title="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="6" y1="6" x2="18" y2="18"/>
+          <line x1="6" y1="18" x2="18" y2="6"/>
+        </svg>
+      </button>
+    </div>
+  </div>
 
-          <div id="loginStatus" class="login-status">
-            <span class="spinner"></span>
-            <span id="loginStatusText">Opening browser...</span>
+  <!-- Add Search Modal -->
+  <div id="addSearchModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Add Search</h3>
+        <button class="modal-close" id="closeSearchModal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="searchNameInput">Name (optional)</label>
+          <input type="text" id="searchNameInput" class="input" placeholder="e.g., GG Wand, Mirror Base...">
+          <span class="form-hint">Give this search a memorable name</span>
+        </div>
+        <div class="form-group">
+          <label for="searchSoundSelect">Notification Sound</label>
+          <div class="sound-select-row">
+            <select id="searchSoundSelect" class="select">
+              <option value="default">Default</option>
+              <option value="chime">Chime</option>
+              <option value="alert">Alert</option>
+              <option value="success">Success</option>
+              <option value="coin">Coin</option>
+              <option value="none">None (silent)</option>
+            </select>
+            <button class="icon-btn" id="previewSoundBtn" title="Preview sound">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+              </svg>
+            </button>
           </div>
+          <span class="form-hint">Play a unique sound for high-value snipes</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn secondary" id="cancelSearchModal">Cancel</button>
+        <button class="btn primary" id="confirmSearchModal">Add Search</button>
+      </div>
+      <input type="hidden" id="pendingQueryId" value="">
+    </div>
+  </div>
+
+  <!-- Login Overlay -->
+  <div id="loginOverlay" class="login-overlay hidden">
+    <div class="login-container">
+      <div class="login-content">
+        <div class="login-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+            <polyline points="10 17 15 12 10 7"/>
+            <line x1="15" y1="12" x2="3" y2="12"/>
+          </svg>
+        </div>
+        <h2>Connect to Path of Exile</h2>
+        <p>A browser window will open for you to log in.</p>
+        <div id="loginStatus" class="login-status">
+          <span class="spinner"></span>
+          <span id="loginStatusText">Opening browser...</span>
         </div>
       </div>
     </div>
+  </div>
 
-    <!-- Header with controls -->
-    <header class="app-header">
-      <div class="header-left">
-        <svg class="app-icon" viewBox="0 0 512 512" width="28" height="28">
-          <defs>
-            <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" style="stop-color:#dbb978"/>
-              <stop offset="50%" style="stop-color:#c9aa71"/>
-              <stop offset="100%" style="stop-color:#a08050"/>
-            </linearGradient>
-            <radialGradient id="innerGlow" cx="50%" cy="40%" r="50%">
-              <stop offset="0%" style="stop-color:#fff5e0;stop-opacity:0.9"/>
-              <stop offset="60%" style="stop-color:#c9aa71;stop-opacity:0.5"/>
-              <stop offset="100%" style="stop-color:#806030;stop-opacity:0"/>
-            </radialGradient>
-          </defs>
-          <circle cx="256" cy="256" r="240" fill="#1a1a2e"/>
-          <circle cx="256" cy="256" r="220" fill="none" stroke="url(#goldGrad)" stroke-width="12" opacity="0.5"/>
-          <polygon points="256,60 400,256 256,452 112,256" fill="url(#goldGrad)"/>
-          <polygon points="256,60 400,256 256,200" fill="#dbb978" opacity="0.9"/>
-          <polygon points="256,60 112,256 256,200" fill="#c9aa71" opacity="0.8"/>
-          <polygon points="112,256 256,452 256,200" fill="#a08050" opacity="0.9"/>
-          <polygon points="400,256 256,452 256,200" fill="#806030" opacity="0.85"/>
-          <polygon points="256,60 400,256 256,452 112,256" fill="url(#innerGlow)"/>
-        </svg>
-        <h1 class="app-title">Divinge</h1>
-        <span id="versionBadge" class="version-badge">v0.0.0</span>
-      </div>
-      <div class="header-right">
-        <div id="status-indicator" class="status-badge stopped">
-          <span class="status-dot"></span>
-          <span class="status-text">Stopped</span>
+  <div class="app">
+      <!-- Left Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="app-logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/>
+              <line x1="12" y1="22" x2="12" y2="15.5"/>
+              <polyline points="22 8.5 12 15.5 2 8.5"/>
+            </svg>
+          </div>
+          <div class="app-info">
+            <span class="app-name">Divinge</span>
+            <span id="versionBadge" class="version-badge">v0.0.0</span>
+          </div>
         </div>
-      </div>
-    </header>
 
-    <!-- Tab Navigation -->
-    <nav class="tab-nav">
-      <button class="tab-btn active" data-tab="searches">
-        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-        </svg>
-        Live Searches
-      </button>
-      <button class="tab-btn" data-tab="analytics">
-        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/>
-        </svg>
-        Analytics
-      </button>
-      <button class="tab-btn" data-tab="settings">
-        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72 1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-        </svg>
-        Settings
-      </button>
-      <button class="tab-btn" data-tab="economy">
-        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
-        </svg>
-        Economy
-      </button>
-    </nav>
-
-    <!-- Tab Content -->
-    <main class="tab-content">
-      <!-- Live Searches Tab -->
-      <div id="tab-searches" class="tab-panel active">
-        <div class="panel-content searches-layout">
-          <!-- Top Section -->
-          <div class="searches-top">
-            <!-- Control Bar with Start/Stop -->
-            <div class="control-bar">
-              <div class="control-group">
-                <button id="startBtn" class="btn btn-start">
-                  <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-                  Start
+        <nav class="sidebar-nav">
+          <button class="nav-item active" data-tab="home">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+              <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+            </svg>
+            <span>Dashboard</span>
+          </button>
+          <button class="nav-item" data-tab="searches">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+            <span>Live Searches</span>
+          </button>
+          <button class="nav-item" data-tab="history">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+            <span>Merchant History</span>
+          </button>
+          <div class="nav-group">
+            <button class="nav-item" data-tab="economy">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+              </svg>
+              <span>Economy</span>
+              <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            <div class="nav-subitems">
+              <button class="nav-subitem active" data-category="favorites">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                Favorites
+                <span id="favoritesCount" class="nav-count">0</span>
+              </button>
+              <div class="nav-subgroup expanded">
+                <button class="nav-subgroup-toggle">
+                  Currency
+                  <svg class="subgroup-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
-                <button id="pauseBtn" class="btn btn-pause" disabled>
-                  <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>
-                  Pause
-                </button>
-                <button id="stopBtn" class="btn btn-stop" disabled>
-                  <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12"/></svg>
-                  Stop
-                </button>
-              </div>
-              <div class="stats-inline">
-                <div class="stat-inline">
-                  <span class="stat-value-sm" id="statListings">0</span>
-                  <span class="stat-label-sm">listings</span>
-                </div>
-                <div class="stat-inline highlight">
-                  <span class="stat-value-sm" id="statTeleports">0</span>
-                  <span class="stat-label-sm">teleports</span>
-                </div>
-                <div class="stat-inline">
-                  <span class="stat-value-sm" id="statUptime">00:00</span>
-                  <span class="stat-label-sm">uptime</span>
+                <div class="nav-subgroup-items">
+                  <button class="nav-subitem" data-category="currency">Currency</button>
+                  <button class="nav-subitem" data-category="fragments">Fragments</button>
+                  <button class="nav-subitem" data-category="runes">Runes</button>
+                  <button class="nav-subitem" data-category="essences">Essences</button>
+                  <button class="nav-subitem" data-category="gems">Uncut Gems</button>
+                  <button class="nav-subitem" data-category="talismans">Talismans</button>
                 </div>
               </div>
-            </div>
-
-            <!-- Search Management -->
-            <div class="card compact">
-              <div class="card-header">
-                <h2>Trade Searches</h2>
-                <div class="search-header-actions">
-                  <span class="search-count" id="searchCount">0 searches</span>
-                  <button id="importSearchesBtn" class="btn-icon-small" title="Import searches">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                  </button>
-                  <button id="exportSearchesBtn" class="btn-icon-small" title="Export searches">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                  </button>
+              <div class="nav-subgroup">
+                <button class="nav-subgroup-toggle">
+                  League
+                  <svg class="subgroup-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div class="nav-subgroup-items">
+                  <button class="nav-subitem" data-category="soulcores">Soul Cores</button>
+                  <button class="nav-subitem" data-category="omens">Omens</button>
+                  <button class="nav-subitem" data-category="expedition">Expedition</button>
+                  <button class="nav-subitem" data-category="breach">Breach</button>
+                  <button class="nav-subitem" data-category="delirium">Delirium</button>
+                  <button class="nav-subitem" data-category="incursion">Incursion</button>
+                  <button class="nav-subitem" data-category="abyss">Abyss</button>
+                  <button class="nav-subitem" data-category="reliquary">Reliquary</button>
                 </div>
               </div>
-              <div class="card-body">
-                <div class="add-search-row" id="urlInputRow">
-                  <input type="text" id="searchUrl" class="input" placeholder="Paste trade URL or query ID...">
-                  <button id="addSearchBtn" class="btn btn-primary">
-                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                    Add
-                  </button>
-                </div>
-                <div class="add-search-row name-row hidden" id="nameInputRow">
-                  <input type="text" id="searchName" class="input" placeholder="Name this search...">
-                  <button id="confirmSearchBtn" class="btn btn-primary">
-                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-                    Confirm
-                  </button>
-                  <button id="cancelSearchBtn" class="btn btn-secondary">Cancel</button>
-                </div>
-                <div id="searchList" class="search-list">
-                  <div class="empty-state">
-                    <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-                    </svg>
-                    <p>No searches added yet</p>
-                    <span>Paste a trade URL above to start monitoring</span>
-                  </div>
+              <div class="nav-subgroup">
+                <button class="nav-subgroup-toggle">
+                  Uniques
+                  <svg class="subgroup-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div class="nav-subgroup-items">
+                  <button class="nav-subitem" data-category="uniques-weapons">Weapons</button>
+                  <button class="nav-subitem" data-category="uniques-armour">Armour</button>
+                  <button class="nav-subitem" data-category="uniques-accessories">Accessories</button>
+                  <button class="nav-subitem" data-category="uniques-flasks">Flasks</button>
+                  <button class="nav-subitem" data-category="uniques-jewels">Jewels</button>
                 </div>
               </div>
             </div>
           </div>
+          <button class="nav-item" data-tab="settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+            <span>Settings</span>
+          </button>
+        </nav>
 
-          <!-- Activity Log (Full) -->
-          <div class="card compact activity-card">
-            <div class="card-header">
-              <h2>Activity Log</h2>
-              <button id="clearLogBtn" class="btn btn-link">Clear</button>
+        <div class="sidebar-footer">
+          <div id="updateContainer" class="update-section">
+            <button id="checkUpdateBtn" class="update-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+              <span>Check for Updates</span>
+            </button>
+            <span id="updateStatus" class="update-status"></span>
+            <button id="restartUpdateBtn" class="update-btn success" style="display: none;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+              <span>Restart to Update</span>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Area -->
+      <main class="main">
+        <!-- Status Bar -->
+        <div class="statusbar">
+          <div class="statusbar-left">
+            <div id="status-indicator" class="status-indicator stopped">
+              <span class="status-dot"></span>
+              <span class="status-text">Stopped</span>
             </div>
-            <div class="card-body">
-              <div id="logContainer" class="log-container">
-                <div class="log-entry info">[System] Ready. Configure your settings and add searches to begin.</div>
-              </div>
+            <span class="status-info" id="statusInfo">0 searches</span>
+          </div>
+          <div class="statusbar-right">
+            <div class="notifications-toggle">
+              <span class="notifications-toggle-label">Notifications</span>
+              <label class="toggle toggle-sm">
+                <input type="checkbox" id="notificationsEnabled" checked>
+                <span class="toggle-slider"></span>
+              </label>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Analytics Tab -->
-      <div id="tab-analytics" class="tab-panel">
-        <div class="panel-content">
-          <!-- Session Stats -->
-          <div class="card">
-            <div class="card-header">
-              <h2>Session Overview</h2>
-              <span class="session-duration" id="analyticsSessionDuration">0:00:00</span>
+        <!-- Content Area -->
+        <div class="main-content">
+          <!-- Home Tab -->
+        <div id="tab-home" class="tab-panel active">
+          <!-- Stats Section -->
+          <div class="section-header">
+            <h2>Session Stats</h2>
+          </div>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <span class="stat-value" id="statListings">0</span>
+              <span class="stat-label">Listings</span>
             </div>
-            <div class="card-body">
-              <div class="analytics-stats">
-                <div class="analytics-stat">
-                  <span class="analytics-stat-value" id="analyticsTotalHits">0</span>
-                  <span class="analytics-stat-label">Total Hits</span>
-                </div>
-                <div class="analytics-stat">
-                  <span class="analytics-stat-value" id="analyticsHitsPerHour">0</span>
-                  <span class="analytics-stat-label">Hits/Hour</span>
-                </div>
-                <div class="analytics-stat">
-                  <span class="analytics-stat-value" id="analyticsTeleports">0</span>
-                  <span class="analytics-stat-label">Teleports</span>
-                </div>
-                <div class="analytics-stat">
-                  <span class="analytics-stat-value" id="analyticsSuccessRate">0%</span>
-                  <span class="analytics-stat-label">Success Rate</span>
-                </div>
-              </div>
+            <div class="stat-card highlight">
+              <span class="stat-value" id="statTeleports">0</span>
+              <span class="stat-label">Teleports</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value" id="statUptime">00:00</span>
+              <span class="stat-label">Uptime</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value" id="statSearches">0</span>
+              <span class="stat-label">Active</span>
             </div>
           </div>
 
-          <!-- Hits by Search -->
-          <div class="card">
-            <div class="card-header">
-              <h2>Hits by Search</h2>
-            </div>
-            <div class="card-body">
-              <div id="hitsBySearchList" class="hits-by-search-list">
-                <div class="empty-state-small">No hits recorded yet</div>
-              </div>
-            </div>
+          <!-- Activity Log -->
+          <div class="section-header">
+            <h2>Activity</h2>
+            <button id="clearLogBtn" class="link-btn">Clear</button>
           </div>
-
-          <!-- Recent Activity Timeline -->
-          <div class="card">
-            <div class="card-header">
-              <h2>Recent Activity</h2>
-              <span class="timeline-period">Last 15 minutes</span>
-            </div>
-            <div class="card-body">
-              <div id="activityTimeline" class="activity-timeline">
-                <div class="empty-state-small">No recent activity</div>
-              </div>
+          <div class="activity-log">
+            <div id="logContainer" class="log-container">
+              <div class="log-entry info">Ready. Add searches and click Start to begin.</div>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Settings Tab -->
-      <div id="tab-settings" class="tab-panel">
-        <div class="panel-content">
-          <!-- Preferences Card -->
-          <div class="card">
-            <div class="card-header">
-              <h2>Preferences</h2>
+        <!-- Searches Tab -->
+        <div id="tab-searches" class="tab-panel">
+          <div class="panel-header">
+            <div class="panel-header-left">
+              <button class="back-link" data-navigate="home">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+                Dashboard
+              </button>
+              <h1>Live Searches</h1>
             </div>
-            <div class="card-body">
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="league">League</label>
-                  <select id="league" class="select">
-                    <option value="Fate%20of%20the%20Vaal">Fate of the Vaal</option>
-                    <option value="Standard">Standard</option>
-                    <option value="Hardcore">Hardcore</option>
-                  </select>
-                </div>
-              </div>
-
-              <div class="checkbox-group">
-                <label class="checkbox-label">
-                  <input type="checkbox" id="soundEnabled" checked>
-                  <span class="checkbox-custom"></span>
-                  Enable sound notifications
-                </label>
-                <button id="testSoundBtn" class="btn btn-secondary btn-sm" title="Test Sound">
-                  <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+            <div class="panel-header-right">
+              <div class="bulk-actions">
+                <button class="icon-btn" id="importSearchesBtn" title="Import Searches">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
                   </svg>
-                  Test
+                </button>
+                <button class="icon-btn" id="exportSearchesBtn" title="Export Searches">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
                 </button>
               </div>
-
-              <div class="checkbox-group">
-                <label class="checkbox-label">
-                  <input type="checkbox" id="startMinimized">
-                  <span class="checkbox-custom"></span>
-                  Start minimized to system tray
-                </label>
-              </div>
-
-              <div class="checkbox-group">
-                <label class="checkbox-label">
-                  <input type="checkbox" id="autoStart">
-                  <span class="checkbox-custom"></span>
-                  Auto-start sniper on launch
-                </label>
-              </div>
-
-              <div class="checkbox-group">
-                <label class="checkbox-label">
-                  <input type="checkbox" id="autoPurchase">
-                  <span class="checkbox-custom"></span>
-                  Auto-purchase items after teleport
-                </label>
-                <span class="setting-hint">Automatically Ctrl+Click the highlighted item</span>
-              </div>
-
-              <div class="action-bar">
-                <button id="saveConfigBtn" class="btn btn-primary">
-                  <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-                    <polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
-                  </svg>
-                  Save Settings
+              <div class="global-controls">
+                <button class="control-pill start" id="homeStartBtn" title="Start All">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                </button>
+                <button class="control-pill pause" id="homePauseAllBtn" disabled title="Pause All">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                </button>
+                <button class="control-pill stop" id="homeStopBtn" disabled title="Stop All">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12"/></svg>
                 </button>
               </div>
             </div>
           </div>
+
+          <div class="search-input-row">
+            <input type="text" id="searchUrl" class="input" placeholder="Paste trade URL or query ID...">
+            <button id="addSearchBtn" class="btn primary">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              Add Search
+            </button>
+          </div>
+
+          <div id="searchList" class="search-list">
+            <div class="empty-state">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+              </svg>
+              <p>No searches added yet</p>
+              <span>Paste a trade URL above to start monitoring</span>
+            </div>
+          </div>
         </div>
-      </div>
 
-      <!-- Economy Tab -->
-      <div id="tab-economy" class="tab-panel">
-        <div class="economy-layout">
-          <!-- Sidebar -->
-          <aside class="economy-sidebar">
-            <div class="sidebar-section categories-section">
-              <h3>Categories</h3>
-              <nav class="category-nav">
-                <button class="category-btn active" data-category="favorites">
-                  <svg class="category-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-                  Favorites
-                  <span id="favoritesCount" class="category-count">0</span>
-                </button>
-                <div class="category-group-label">Currency</div>
-                <button class="category-btn" data-category="currency">Currency</button>
-                <button class="category-btn" data-category="fragments">Fragments</button>
-                <button class="category-btn" data-category="runes">Runes</button>
-                <button class="category-btn" data-category="essences">Essences</button>
-                <button class="category-btn" data-category="soulcores">Soul Cores</button>
-                <button class="category-btn" data-category="talismans">Talismans</button>
-                <button class="category-btn" data-category="gems">Uncut Gems</button>
-                <div class="category-group-label">League Content</div>
-                <button class="category-btn" data-category="expedition">Expedition</button>
-                <button class="category-btn" data-category="breach">Breach</button>
-                <button class="category-btn" data-category="delirium">Delirium</button>
-                <button class="category-btn" data-category="incursion">Incursion</button>
-                <button class="category-btn" data-category="abyss">Abyss</button>
-                <button class="category-btn" data-category="omens">Ritual Omens</button>
-                <button class="category-btn" data-category="reliquary">Reliquary Keys</button>
-                <div class="category-group-label">Uniques</div>
-                <button class="category-btn" data-category="uniques-weapons">Weapons</button>
-                <button class="category-btn" data-category="uniques-armour">Armour</button>
-                <button class="category-btn" data-category="uniques-accessories">Accessories</button>
-                <button class="category-btn" data-category="uniques-flasks">Flasks</button>
-                <button class="category-btn" data-category="uniques-jewels">Jewels</button>
-              </nav>
-            </div>
-            <div class="sidebar-footer">
-              <div class="exchange-rate">
-                <img class="currency-icon-sm" src="https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lNb2RWYWx1ZXMiLCJ3IjoxLCJoIjoxLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/af4036c345/CurrencyModValues.png" alt="Divine">
-                <span class="exchange-label">1 div =</span>
-                <span id="divinePrice" class="exchange-value">--</span>
-                <img class="currency-icon-sm" src="https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lBZGRNb2RUb1JhcmUiLCJ3IjoxLCJoIjoxLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/4ef5836606/CurrencyAddModToRare.png" alt="Exalted">
-              </div>
-              <div class="price-toggle-compact">
-                <button id="priceToggleEx" class="toggle-btn active" data-currency="exalted" title="Show prices in Exalted">
-                  <img src="https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lBZGRNb2RUb1JhcmUiLCJ3IjoxLCJoIjoxLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/4ef5836606/CurrencyAddModToRare.png" alt="ex">
-                </button>
-                <button id="priceToggleDiv" class="toggle-btn" data-currency="divine" title="Show prices in Divine">
-                  <img src="https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lNb2RWYWx1ZXMiLCJ3IjoxLCJoIjoxLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/af4036c345/CurrencyModValues.png" alt="div">
-                </button>
-              </div>
-            </div>
-            <span id="exaltedPrice" style="display:none;">--</span>
-          </aside>
-
-          <!-- Main Content -->
-          <main class="economy-main">
-            <!-- Search Bar -->
-            <div class="economy-search">
-              <div class="search-input-wrapper">
-                <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                <input type="text" id="economySearch" class="search-input" placeholder="Search items...">
-                <button id="clearSearchBtn" class="clear-search-btn" style="display: none;">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                </button>
-              </div>
-              <button id="refreshEconomyBtn" class="btn btn-secondary">
-                <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                Refresh
+        <!-- Economy Tab -->
+        <div id="tab-economy" class="tab-panel">
+          <!-- Economy Dashboard (shown by default) -->
+          <div id="economyDashboard" class="economy-dashboard">
+            <div class="dashboard-header">
+              <h2>Market Overview</h2>
+              <button id="refreshDashboardBtn" class="icon-btn" title="Refresh">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
               </button>
             </div>
 
-            <!-- Loading State -->
-            <div id="economyLoading" class="economy-loading" style="display: none;">
+            <!-- Key Stats -->
+            <div class="dashboard-stats">
+              <div class="dash-stat-card">
+                <div class="dash-stat-icon divine">
+                  <img src="https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lNb2RWYWx1ZXMiLCJ3IjoxLCJoIjoxLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/af4036c345/CurrencyModValues.png" alt="Divine">
+                </div>
+                <div class="dash-stat-info">
+                  <span class="dash-stat-label">Divine Orb</span>
+                  <span class="dash-stat-value" id="dashDivinePrice">--</span>
+                  <span class="dash-stat-change" id="dashDivineChange">--</span>
+                </div>
+              </div>
+              <div class="dash-stat-card">
+                <div class="dash-stat-icon exalt">
+                  <img src="https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lBZGRNb2RUb1JhcmUiLCJ3IjoxLCJoIjoxLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/4ef5836606/CurrencyAddModToRare.png" alt="Exalted">
+                </div>
+                <div class="dash-stat-info">
+                  <span class="dash-stat-label">Exalted Orb</span>
+                  <span class="dash-stat-value" id="dashExaltedPrice">--</span>
+                  <span class="dash-stat-change" id="dashExaltedChange">--</span>
+                </div>
+              </div>
+              <div class="dash-stat-card">
+                <div class="dash-stat-icon mirror">
+                  <img src="https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lEdXBsaWNhdGUiLCJ3IjoxLCJoIjoxLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/4c99475c02/CurrencyDuplicate.png" alt="Mirror">
+                </div>
+                <div class="dash-stat-info">
+                  <span class="dash-stat-label">Mirror of Kalandra</span>
+                  <span class="dash-stat-value" id="dashMirrorPrice">--</span>
+                  <span class="dash-stat-change" id="dashMirrorChange">--</span>
+                </div>
+              </div>
+              <div class="dash-stat-card">
+                <div class="dash-stat-icon chaos">
+                  <img src="https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lSZXJvbGxSYXJlIiwidyI6MSwiaCI6MSwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/c5bad4dd20/CurrencyRerollRare.png" alt="Chaos">
+                </div>
+                <div class="dash-stat-info">
+                  <span class="dash-stat-label">Chaos Orb</span>
+                  <span class="dash-stat-value" id="dashChaosPrice">--</span>
+                  <span class="dash-stat-change" id="dashChaosChange">--</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Divine Price Trend Chart -->
+            <div class="dashboard-chart-section">
+              <div class="dash-section-header">
+                <h3>Divine Orb Price Trend</h3>
+                <div class="chart-range-btns">
+                  <button class="range-btn" data-range="24h">24h</button>
+                  <button class="range-btn active" data-range="7d">7d</button>
+                  <button class="range-btn" data-range="30d">30d</button>
+                </div>
+              </div>
+              <div id="dashboardChart" class="dashboard-chart">
+                <div class="chart-loading">Loading chart...</div>
+              </div>
+            </div>
+
+            <!-- Top Movers -->
+            <div class="dashboard-movers">
+              <div class="movers-section">
+                <div class="dash-section-header">
+                  <h3>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+                    Top Gainers
+                  </h3>
+                  <select id="gainersFilter" class="movers-filter">
+                    <option value="all">All</option>
+                    <option value="currency">Currency</option>
+                    <option value="league">League</option>
+                    <option value="uniques">Uniques</option>
+                  </select>
+                </div>
+                <div id="topGainers" class="movers-list">
+                  <div class="mover-loading">Loading...</div>
+                </div>
+              </div>
+              <div class="movers-section">
+                <div class="dash-section-header">
+                  <h3>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>
+                    Top Losers
+                  </h3>
+                  <select id="losersFilter" class="movers-filter">
+                    <option value="all">All</option>
+                    <option value="currency">Currency</option>
+                    <option value="league">League</option>
+                    <option value="uniques">Uniques</option>
+                  </select>
+                </div>
+                <div id="topLosers" class="movers-list">
+                  <div class="mover-loading">Loading...</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Category Items View (shown when category selected) -->
+          <div id="economyItems" class="economy-items-view" style="display: none;">
+            <div class="economy-toolbar">
+              <button class="back-link" id="backToDashboard">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+                Overview
+              </button>
+              <h2 id="categoryTitle">Currency</h2>
+              <div class="toolbar-spacer"></div>
+              <div class="search-wrapper">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input type="text" id="economySearch" placeholder="Search items...">
+                <button id="clearSearchBtn" class="clear-btn" style="display: none;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+              <div class="price-toggle">
+                <button id="priceToggleDiv" class="toggle-btn" title="Show prices in Divine">
+                  <img class="currency-icon" src="https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lNb2RWYWx1ZXMiLCJ3IjoxLCJoIjoxLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/af4036c345/CurrencyModValues.png" alt="Divine">
+                </button>
+                <button id="priceToggleEx" class="toggle-btn active" title="Show prices in Exalted">
+                  <img class="currency-icon" src="https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lBZGRNb2RUb1JhcmUiLCJ3IjoxLCJoIjoxLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/4ef5836606/CurrencyAddModToRare.png" alt="Exalted">
+                </button>
+              </div>
+              <div class="exchange-rate">
+                <span>1 div = <strong id="divinePrice">--</strong></span>
+              </div>
+              <button id="refreshEconomyBtn" class="icon-btn" title="Refresh">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              </button>
+            </div>
+            <span id="exaltedPrice" style="display:none;">--</span>
+            <div id="economyLoading" class="loading-state" style="display: none;">
               <div class="spinner"></div>
               <span>Loading prices...</span>
             </div>
-
-            <!-- Error State -->
-            <div id="economyError" class="economy-error" style="display: none;">
-              <svg class="error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <div id="economyError" class="error-state" style="display: none;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
               <span id="economyErrorMsg">Failed to load prices</span>
-              <button id="retryEconomyBtn" class="btn btn-secondary btn-sm">Retry</button>
+              <button id="retryEconomyBtn" class="btn secondary small">Retry</button>
             </div>
-
-            <!-- Items Grid -->
-            <div id="economyItems" class="economy-items">
-              <!-- Items will be populated here -->
-            </div>
-
-            <!-- Empty Favorites State -->
-            <div id="emptyFavorites" class="empty-favorites" style="display: none;">
-              <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            <div id="economyItemsGrid" class="items-grid"></div>
+            <div id="emptyFavorites" class="empty-state" style="display: none;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
               <p>No favorites yet</p>
-              <span>Click the star on any item to add it to your favorites</span>
-            </div>
-          </main>
-        </div>
-      </div>
-
-      <!-- Price History Modal -->
-      <div id="priceModal" class="price-modal hidden">
-        <div class="price-modal-content">
-          <div class="price-modal-header">
-            <div class="price-modal-item">
-              <img id="priceModalIcon" class="price-modal-icon" src="" alt="">
-              <div>
-                <h3 id="priceModalName">Item Name</h3>
-                <span id="priceModalPrice" class="price-modal-current">0 ex</span>
-              </div>
-            </div>
-            <button id="priceModalClose" class="price-modal-close">&times;</button>
-          </div>
-          <div class="price-modal-body">
-            <div class="chart-time-range">
-              <button class="time-range-btn active" data-range="all">All</button>
-              <button class="time-range-btn" data-range="10">10d</button>
-              <button class="time-range-btn" data-range="5">5d</button>
-              <button class="time-range-btn" data-range="2">2d</button>
-            </div>
-            <div class="chart-container">
-              <svg id="priceChart" class="price-chart" viewBox="0 0 600 280"></svg>
-              <div id="chartTooltip" class="chart-tooltip hidden">
-                <div class="tooltip-price" id="tooltipPrice">0 ex</div>
-                <div class="tooltip-volume" id="tooltipVolume">0 listings</div>
-                <div class="tooltip-time" id="tooltipTime">--</div>
-              </div>
-            </div>
-            <div class="price-chart-labels">
-              <span id="chartMinTime" class="chart-label-time"></span>
-              <span id="chartMaxTime" class="chart-label-time"></span>
-            </div>
-            <div class="chart-legend">
-              <span class="legend-item"><span class="legend-color price"></span>Price</span>
-              <span class="legend-item"><span class="legend-color volume"></span>Volume</span>
+              <span>Click the star on any item to add it here</span>
             </div>
           </div>
         </div>
-      </div>
 
-    </main>
+        <!-- History Tab -->
+        <div id="tab-history" class="tab-panel">
+          <div class="panel-header">
+            <div class="panel-header-left">
+              <button class="back-link" data-navigate="home">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+                Dashboard
+              </button>
+              <h1>Merchant History</h1>
+            </div>
+            <div class="panel-header-right">
+              <button id="historySyncBtn" class="btn secondary small">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
+                  <path d="M23 4v6h-6M1 20v-6h6"/>
+                  <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                </svg>
+                Sync
+              </button>
+              <span id="historyLastSync" class="history-sync-time"></span>
+              <span id="historyStatus" class="history-status"></span>
+            </div>
+          </div>
 
-    <!-- Footer -->
-    <footer class="app-footer">
-      <div class="footer-left">
-        <span class="hotkey-hint">Ctrl+Shift+S (Start/Stop) • Ctrl+Shift+H (Show/Hide)</span>
-      </div>
-      <div class="footer-right">
-        <div id="updateContainer" class="update-container">
-          <span id="updateStatus" class="update-status"></span>
-          <button id="checkUpdateBtn" class="btn btn-update">
-            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9"/>
+          <div id="historyList" class="history-list"></div>
+
+          <div id="historyEmptyState" class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
             </svg>
-            Check for Updates
-          </button>
-          <button id="downloadUpdateBtn" class="btn btn-primary btn-sm" style="display: none;">Download</button>
-          <button id="installUpdateBtn" class="btn btn-success btn-sm" style="display: none;">Restart & Install</button>
-          <span id="updateBadge" class="update-badge" style="display: none;">
-            <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
-          </span>
+            <p>No merchant history yet</p>
+            <span>Your completed sales will appear here</span>
+          </div>
         </div>
-      </div>
-    </footer>
+
+        <!-- Settings Tab -->
+        <div id="tab-settings" class="tab-panel">
+          <div class="settings-header">
+            <div class="settings-header-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </div>
+            <div class="settings-header-text">
+              <h1>Settings</h1>
+              <p>Configure your sniper preferences</p>
+            </div>
+          </div>
+
+          <div class="settings-grid">
+            <!-- Connection Section -->
+            <div class="settings-section">
+              <div class="section-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
+                <h2>Connection</h2>
+              </div>
+              <div class="setting-row">
+                <div class="setting-icon connection-ok" id="connectionIcon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                  </svg>
+                </div>
+                <div class="setting-info">
+                  <label>Path of Exile</label>
+                  <span class="setting-desc" id="connectionStatus">Connected and authenticated</span>
+                </div>
+                <button class="btn btn-secondary btn-sm" id="reloginBtn">Re-login</button>
+              </div>
+            </div>
+
+            <!-- Preferences Section -->
+            <div class="settings-section">
+              <div class="section-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+                <h2>Preferences</h2>
+              </div>
+              <div class="setting-row">
+                <div class="setting-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                  </svg>
+                </div>
+                <div class="setting-info">
+                  <label for="league">League</label>
+                  <span class="setting-desc">Select your current league</span>
+                </div>
+                <select id="league" class="select">
+                  <option value="Fate%20of%20the%20Vaal">Fate of the Vaal</option>
+                  <option value="Standard">Standard</option>
+                  <option value="Hardcore">Hardcore</option>
+                </select>
+              </div>
+              <div class="setting-row">
+                <div class="setting-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+                  </svg>
+                </div>
+                <div class="setting-info">
+                  <label>Start Minimized</label>
+                  <span class="setting-desc">Launch app in system tray</span>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" id="startMinimized">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="setting-row">
+                <div class="setting-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                  </svg>
+                </div>
+                <div class="setting-info">
+                  <label>Auto-start Sniper</label>
+                  <span class="setting-desc">Begin sniping when app launches</span>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" id="autoStart">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Discord Integration Section -->
+            <div class="settings-section">
+              <div class="section-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+                </svg>
+                <h2>Discord Integration</h2>
+              </div>
+              <div class="setting-row">
+                <div class="setting-icon discord">
+                  <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+                  </svg>
+                </div>
+                <div class="setting-info">
+                  <label>Enable Notifications</label>
+                  <span class="setting-desc">Post sale notifications to Discord</span>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" id="discordEnabled">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="setting-row">
+                <div class="setting-info full-width">
+                  <label for="discordDisplayName">Display Name</label>
+                  <input type="text" id="discordDisplayName" class="input" placeholder="Your name (shown in Discord)">
+                  <span class="setting-desc">How your sales appear in Discord (e.g. "Nick sold an item!")</span>
+                </div>
+              </div>
+              <div class="setting-row discord-webhook-row">
+                <div class="setting-info full-width">
+                  <label for="discordWebhookUrl">Webhook URL</label>
+                  <div class="webhook-input-group">
+                    <input type="text" id="discordWebhookUrl" class="input" placeholder="https://discord.com/api/webhooks/...">
+                    <button id="testDiscordBtn" class="btn secondary small">Test</button>
+                    <button id="saveDiscordBtn" class="btn primary small">Save</button>
+                  </div>
+                  <span id="discordStatus" class="discord-status"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- End Content Area -->
+        </div>
+      </main>
   </div>
 
   <script type="module" src="renderer.js"></script>

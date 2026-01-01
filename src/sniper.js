@@ -476,28 +476,30 @@ export class TradeSniper extends EventEmitter {
         // Try to parse as JSON to get item IDs directly from WebSocket
         const data = JSON.parse(payload);
 
-        if (data.new && Array.isArray(data.new) && data.new.length > 0) {
-          // Filter out items already being processed to prevent race condition
-          const itemIds = data.new.filter(id => !this.processingIds.has(id));
-          if (itemIds.length === 0) return;
+        // Handle new item notifications - GGG sends { result: "JWT_TOKEN", count: N }
+        if (data.result && typeof data.result === 'string') {
+          const itemToken = data.result;
 
-          // Mark items as being processed
-          itemIds.forEach(id => this.processingIds.add(id));
+          // Skip if already processing this token
+          if (this.processingIds.has(itemToken)) return;
 
-          this.log('INFO', `WebSocket: ${itemIds.length} new item(s) - fetching directly...`, queryId);
+          // Mark as processing immediately
+          this.processingIds.add(itemToken);
 
-          // Fetch items directly (faster than waiting for page to do it)
-          this.fetchItemsDirectly(itemIds, queryId, queryName, page)
+          // Fetch item directly using the token (faster than waiting for page)
+          this.fetchItemsDirectly([itemToken], queryId, queryName, page)
             .catch(err => {
-              this.log('DEBUG', `Direct fetch failed, falling back to page intercept: ${err.message}`, queryId);
+              this.log('WARN', `Direct fetch failed: ${err.message}`, queryId);
             })
             .finally(() => {
-              // Release processing lock
-              itemIds.forEach(id => this.processingIds.delete(id));
+              // Keep in processingIds longer to prevent response interceptor from double-processing
+              setTimeout(() => {
+                this.processingIds.delete(itemToken);
+              }, 5000);
             });
         }
       } catch (e) {
-        // Not JSON or parse error - ignore, the response interceptor will handle it
+        // Non-JSON payloads (heartbeats, etc.) are expected - silently ignore
       }
     });
 
@@ -538,25 +540,24 @@ export class TradeSniper extends EventEmitter {
         return;
       }
 
-      // Log trade API requests
-      if (url.includes('/api/trade2/')) {
-        this.log('DEBUG', `Request: ${url}`, queryId);
-      }
       request.continue();
     });
 
     page.on('response', async (response) => {
       const url = response.url();
 
-      // Log trade API responses
-      if (url.includes('/api/trade2/')) {
-        this.log('DEBUG', `Response: ${url} - ${response.status()}`, queryId);
-      }
-
       if (url.includes('/api/trade2/fetch')) {
         try {
+          // Extract token from URL to check if WebSocket handler already got this
+          const tokenMatch = url.match(/\/fetch\/([^?]+)/);
+          const urlToken = tokenMatch ? tokenMatch[1] : null;
+
+          // Skip if WebSocket handler is already processing this token
+          if (urlToken && this.processingIds.has(urlToken)) {
+            return;
+          }
+
           const data = await response.json();
-          this.log('DEBUG', `Fetch response: ${data.result?.length || 0} items`, queryId);
 
           if (data.result && Array.isArray(data.result)) {
             for (const item of data.result) {

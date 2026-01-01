@@ -42,6 +42,20 @@ const state = {
   loading: false,
   priceCurrency: 'exalted',
   divinePrice: 0,
+  // Dashboard state
+  dashboardLoaded: false,
+  dashboardChartRange: '7d',
+  currentView: 'dashboard', // 'dashboard' or 'items'
+  // Movers filter state
+  gainersFilter: 'all',
+  losersFilter: 'all',
+};
+
+// Category groupings for filters
+const CATEGORY_GROUPS = {
+  currency: ['currency', 'fragments'],
+  league: ['essences', 'runes', 'talismans', 'soulcores', 'omens', 'expedition', 'breach', 'delirium', 'incursion', 'abyss', 'reliquary', 'gems'],
+  uniques: ['uniques-weapons', 'uniques-armour', 'uniques-accessories', 'uniques-flasks', 'uniques-jewels'],
 };
 
 // DOM Elements (cached)
@@ -65,9 +79,10 @@ export function initEconomy(config) {
     error: document.getElementById('economyError'),
     errorMsg: document.getElementById('economyErrorMsg'),
     retry: document.getElementById('retryEconomyBtn'),
-    items: document.getElementById('economyItems'),
+    items: document.getElementById('economyItemsGrid'),
+    itemsView: document.getElementById('economyItems'),
     emptyFavorites: document.getElementById('emptyFavorites'),
-    categoryNav: document.querySelector('.category-nav'),
+    categoryNav: document.querySelector('.nav-subitems'),
     favoritesCount: document.getElementById('favoritesCount'),
     divinePrice: document.getElementById('divinePrice'),
     exaltedPrice: document.getElementById('exaltedPrice'),
@@ -87,6 +102,25 @@ export function initEconomy(config) {
     tooltipVolume: document.getElementById('tooltipVolume'),
     tooltipTime: document.getElementById('tooltipTime'),
     chartTimeRange: document.querySelector('.chart-time-range'),
+    // Dashboard elements
+    dashboard: document.getElementById('economyDashboard'),
+    dashDivinePrice: document.getElementById('dashDivinePrice'),
+    dashDivineChange: document.getElementById('dashDivineChange'),
+    dashExaltedPrice: document.getElementById('dashExaltedPrice'),
+    dashExaltedChange: document.getElementById('dashExaltedChange'),
+    dashMirrorPrice: document.getElementById('dashMirrorPrice'),
+    dashMirrorChange: document.getElementById('dashMirrorChange'),
+    dashChaosPrice: document.getElementById('dashChaosPrice'),
+    dashChaosChange: document.getElementById('dashChaosChange'),
+    dashboardChart: document.getElementById('dashboardChart'),
+    topGainers: document.getElementById('topGainers'),
+    topLosers: document.getElementById('topLosers'),
+    gainersFilter: document.getElementById('gainersFilter'),
+    losersFilter: document.getElementById('losersFilter'),
+    backToDashboard: document.getElementById('backToDashboard'),
+    refreshDashboard: document.getElementById('refreshDashboardBtn'),
+    categoryTitle: document.getElementById('categoryTitle'),
+    dashChartRangeBtns: document.querySelectorAll('.dashboard-chart-section .range-btn'),
   };
 
   // Current chart state
@@ -104,9 +138,10 @@ export function initEconomy(config) {
 function setupEventListeners() {
   // Category navigation (event delegation)
   elements.categoryNav?.addEventListener('click', (e) => {
-    const btn = e.target.closest('.category-btn');
+    const btn = e.target.closest('.nav-subitem');
     if (btn) {
-      setCategory(btn.dataset.category);
+      const category = btn.dataset.category;
+      showItemsView(category);
     }
   });
 
@@ -142,13 +177,37 @@ function setupEventListeners() {
     if (e.target === elements.priceModal) hidePriceHistory();
   });
 
-  // Time range buttons
+  // Time range buttons (item modal)
   elements.chartTimeRange?.addEventListener('click', (e) => {
     const btn = e.target.closest('.time-range-btn');
     if (btn && !btn.disabled) {
       const range = btn.dataset.range;
       setTimeRange(range);
     }
+  });
+
+  // Dashboard event listeners
+  elements.backToDashboard?.addEventListener('click', showDashboardView);
+  elements.refreshDashboard?.addEventListener('click', () => loadDashboard(true));
+
+  // Dashboard chart range buttons
+  elements.dashChartRangeBtns?.forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return; // Ignore clicks on disabled buttons
+      const range = btn.dataset.range;
+      setDashboardChartRange(range);
+    });
+  });
+
+  // Movers filter dropdowns
+  elements.gainersFilter?.addEventListener('change', (e) => {
+    state.gainersFilter = e.target.value;
+    renderTopMovers();
+  });
+
+  elements.losersFilter?.addEventListener('change', (e) => {
+    state.losersFilter = e.target.value;
+    renderTopMovers();
   });
 }
 
@@ -171,7 +230,7 @@ function setCategory(category) {
   state.currentCategory = category;
 
   // Update active button
-  elements.categoryNav?.querySelectorAll('.category-btn').forEach(btn => {
+  elements.categoryNav?.querySelectorAll('.nav-subitem').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.category === category);
   });
 
@@ -287,6 +346,485 @@ function updateQuickStats() {
       elements.divinePrice.textContent = `${divine.price.toFixed(0)} ex`;
     }
   }
+}
+
+// ========================================
+// Dashboard View Management
+// ========================================
+
+function showDashboardView() {
+  state.currentView = 'dashboard';
+  elements.dashboard.style.display = 'flex';
+  elements.itemsView.style.display = 'none';
+
+  // Clear active category buttons
+  elements.categoryNav?.querySelectorAll('.nav-subitem').forEach(btn => {
+    btn.classList.remove('active');
+  });
+
+  // Re-render chart after layout settles to ensure correct dimensions
+  if (state.dashboardLoaded) {
+    requestAnimationFrame(() => {
+      renderDashboardChart();
+    });
+  }
+}
+
+function showItemsView(category) {
+  state.currentView = 'items';
+  state.currentCategory = category;
+
+  elements.dashboard.style.display = 'none';
+  elements.itemsView.style.display = 'flex';
+
+  // Update active button
+  elements.categoryNav?.querySelectorAll('.nav-subitem').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.category === category);
+  });
+
+  // Update category title
+  const categoryNames = {
+    favorites: 'Favorites',
+    currency: 'Currency',
+    fragments: 'Fragments',
+    runes: 'Runes',
+    essences: 'Essences',
+    talismans: 'Talismans',
+    soulcores: 'Soul Cores',
+    omens: 'Omens',
+    expedition: 'Expedition',
+    breach: 'Breach',
+    delirium: 'Delirium',
+    incursion: 'Incursion',
+    abyss: 'Abyss',
+    reliquary: 'Reliquary',
+    gems: 'Gems',
+    'uniques-weapons': 'Unique Weapons',
+    'uniques-armour': 'Unique Armour',
+    'uniques-accessories': 'Unique Accessories',
+    'uniques-flasks': 'Unique Flasks',
+    'uniques-jewels': 'Unique Jewels',
+  };
+  if (elements.categoryTitle) {
+    elements.categoryTitle.textContent = categoryNames[category] || category;
+  }
+
+  // Load data
+  if (category === 'favorites') {
+    renderItems();
+  } else {
+    const cached = state.cache.get(category);
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      renderItems();
+    } else {
+      fetchCategoryData(category);
+    }
+  }
+}
+
+// ========================================
+// Dashboard Loading
+// ========================================
+
+async function loadDashboard(force = false) {
+  // Fetch currency data for key stats (required)
+  if (force || !state.cache.has('currency')) {
+    await fetchCategoryData('currency', force);
+  }
+
+  // Update stats immediately
+  updateDashboardStats();
+
+  // Render chart with initial data
+  renderDashboardChart();
+
+  // Initial render of top movers with currency data
+  renderTopMovers();
+
+  state.dashboardLoaded = true;
+
+  // Fetch extended history for Divine orb chart (in background)
+  fetchDivineExtendedHistory();
+
+  // Fetch additional categories in background for better Top Movers
+  fetchAdditionalCategories(force);
+}
+
+async function fetchDivineExtendedHistory() {
+  if (!state.divineItem?.itemId) {
+    console.warn('[Economy] No Divine itemId for extended history');
+    return;
+  }
+
+  try {
+    const result = await window.api.fetchItemHistory(state.divineItem.itemId, 500);
+
+    if (result.success && result.data && result.data.length > 0) {
+      // Map the history API response to our expected format
+      const extendedLogs = result.data.map(entry => ({
+        price: entry.price,
+        quantity: entry.quantity || entry.listings || 0,
+        time: entry.time || entry.timestamp
+      }));
+
+      // Update divine item with extended logs
+      state.divineItem = { ...state.divineItem, priceLogs: extendedLogs };
+
+      // Re-render chart with extended data
+      renderDashboardChart();
+    }
+  } catch (err) {
+    // Extended history is optional - silently fail
+  }
+}
+
+async function fetchAdditionalCategories(force = false) {
+  const additionalCategories = ['fragments', 'essences', 'runes', 'uniques-weapons', 'uniques-armour'];
+
+  for (const category of additionalCategories) {
+    if (force || !state.cache.has(category)) {
+      try {
+        await fetchCategoryData(category, force);
+        // Re-render top movers as new data comes in
+        renderTopMovers();
+      } catch (err) {
+        console.warn(`[Economy] Failed to fetch ${category}:`, err);
+      }
+    }
+  }
+}
+
+function updateDashboardStats() {
+  const currencyData = state.cache.get('currency')?.data || [];
+
+  // Find key currencies
+  const divine = currencyData.find(i => i.name.toLowerCase() === 'divine orb');
+  const exalted = currencyData.find(i => i.name.toLowerCase() === 'exalted orb');
+  const mirror = currencyData.find(i => i.name.toLowerCase() === 'mirror of kalandra');
+  const chaos = currencyData.find(i => i.name.toLowerCase() === 'chaos orb');
+
+  // Update Divine stats
+  if (divine) {
+    elements.dashDivinePrice.textContent = `${divine.price.toFixed(0)} ex`;
+    updateChangeDisplay(elements.dashDivineChange, divine.change);
+    updateStatIcon('divine', divine.icon);
+    // Store divine item for chart
+    state.divineItem = divine;
+  }
+
+  // Update Exalted stats (should be ~1 ex but show it)
+  if (exalted) {
+    elements.dashExaltedPrice.textContent = `${exalted.price.toFixed(2)} ex`;
+    updateChangeDisplay(elements.dashExaltedChange, exalted.change);
+    updateStatIcon('exalt', exalted.icon);
+  }
+
+  // Update Mirror stats
+  if (mirror) {
+    elements.dashMirrorPrice.textContent = mirror.price >= 1000
+      ? `${(mirror.price / 1000).toFixed(1)}k ex`
+      : `${mirror.price.toFixed(0)} ex`;
+    updateChangeDisplay(elements.dashMirrorChange, mirror.change);
+    updateStatIcon('mirror', mirror.icon);
+  }
+
+  // Update Chaos stats
+  if (chaos) {
+    elements.dashChaosPrice.textContent = `${chaos.price.toFixed(3)} ex`;
+    updateChangeDisplay(elements.dashChaosChange, chaos.change);
+    updateStatIcon('chaos', chaos.icon);
+  }
+}
+
+function updateStatIcon(className, iconUrl) {
+  if (!iconUrl) return;
+  const iconContainer = document.querySelector(`.dash-stat-icon.${className} img`);
+  if (iconContainer) {
+    iconContainer.src = iconUrl;
+  }
+}
+
+function updateChangeDisplay(element, change) {
+  if (!element) return;
+
+  if (Math.abs(change) < 0.5) {
+    element.textContent = '0%';
+    element.className = 'dash-stat-change';
+  } else {
+    const sign = change > 0 ? '+' : '';
+    element.textContent = `${sign}${change.toFixed(1)}%`;
+    element.className = `dash-stat-change ${change > 0 ? 'up' : 'down'}`;
+  }
+}
+
+// ========================================
+// Dashboard Chart
+// ========================================
+
+function setDashboardChartRange(range) {
+  state.dashboardChartRange = range;
+
+  // Update active button
+  elements.dashChartRangeBtns?.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.range === range);
+  });
+
+  renderDashboardChart();
+}
+
+function updateDashboardChartButtons(priceLogs) {
+  if (!elements.dashChartRangeBtns || !priceLogs) return;
+
+  // Calculate data span in hours
+  const validLogs = priceLogs.filter(log => log && log.time);
+  if (validLogs.length < 2) return;
+
+  const sortedLogs = [...validLogs].sort((a, b) => new Date(a.time) - new Date(b.time));
+  const oldestTime = new Date(sortedLogs[0].time);
+  const newestTime = new Date(sortedLogs[sortedLogs.length - 1].time);
+  const spanHours = (newestTime - oldestTime) / (1000 * 60 * 60);
+
+  elements.dashChartRangeBtns.forEach(btn => {
+    const range = btn.dataset.range;
+    let requiredHours = 0;
+
+    if (range === '24h') requiredHours = 12; // Enable if at least 12h of data
+    else if (range === '7d') requiredHours = 48; // Enable if at least 2 days
+    else if (range === '30d') requiredHours = 168; // Enable if at least 1 week
+
+    const hasEnoughData = spanHours >= requiredHours;
+    btn.disabled = !hasEnoughData;
+    btn.title = hasEnoughData ? '' : `Not enough data (${Math.round(spanHours)}h available)`;
+  });
+}
+
+function renderDashboardChart() {
+  // Re-query element in case it wasn't available during init
+  const container = elements.dashboardChart || document.getElementById('dashboardChart');
+  if (!container) {
+    console.warn('[Economy] Dashboard chart container not found');
+    return;
+  }
+  elements.dashboardChart = container; // Cache for future use
+
+  const divine = state.divineItem;
+  if (!divine) {
+    container.innerHTML = '<div class="chart-empty">Divine orb data not loaded</div>';
+    return;
+  }
+
+  if (!divine.priceLogs || divine.priceLogs.length === 0) {
+    container.innerHTML = '<div class="chart-empty">No price history available</div>';
+    return;
+  }
+
+  // Update time range button states based on available data
+  updateDashboardChartButtons(divine.priceLogs);
+
+  try {
+    // Filter logs based on range and ensure valid price data
+    let priceLogs = divine.priceLogs.filter(log => log && typeof log.price === 'number' && !isNaN(log.price));
+    const range = state.dashboardChartRange;
+
+    if (range !== 'all') {
+      const hours = range === '24h' ? 24 : range === '7d' ? 168 : 720;
+      const cutoffTime = new Date();
+      cutoffTime.setHours(cutoffTime.getHours() - hours);
+      priceLogs = priceLogs.filter(log => new Date(log.time) >= cutoffTime);
+    }
+
+    if (priceLogs.length < 2) {
+      container.innerHTML = '<div class="chart-empty">Not enough data for selected range</div>';
+      return;
+    }
+
+    // Sort oldest first
+    const sortedLogs = [...priceLogs].sort((a, b) => new Date(a.time) - new Date(b.time));
+
+    // Chart dimensions - ensure we have a valid width
+    const containerWidth = container.clientWidth || container.offsetWidth || 600;
+    const width = Math.max(containerWidth, 300);
+    const height = 140;
+    const padding = { top: 15, right: 45, bottom: 25, left: 10 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+
+    // Get price range with safety checks
+    const prices = sortedLogs.map(l => l.price);
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const priceRange = (maxPrice - minPrice) || (minPrice * 0.1) || 1;
+    const paddedMin = minPrice - priceRange * 0.1;
+    const paddedMax = maxPrice + priceRange * 0.1;
+    const paddedRange = paddedMax - paddedMin || 1;
+
+    // Calculate points
+    const divisor = sortedLogs.length > 1 ? sortedLogs.length - 1 : 1;
+    const points = sortedLogs.map((log, i) => {
+      const x = padding.left + (i / divisor) * chartWidth;
+      const y = padding.top + chartHeight - ((log.price - paddedMin) / paddedRange) * chartHeight;
+      return { x: isNaN(x) ? 0 : x, y: isNaN(y) ? 0 : y, price: log.price, time: log.time };
+    });
+
+    // Build smooth path
+    let linePath = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+    for (let i = 1; i < points.length; i++) {
+      linePath += ` L ${points[i].x.toFixed(2)} ${points[i].y.toFixed(2)}`;
+    }
+
+    // Area path
+    const bottomY = padding.top + chartHeight;
+    let areaPath = linePath;
+    areaPath += ` L ${points[points.length - 1].x.toFixed(2)} ${bottomY}`;
+    areaPath += ` L ${points[0].x.toFixed(2)} ${bottomY} Z`;
+
+    // Time labels
+    const firstDate = new Date(sortedLogs[0].time);
+    const lastDate = new Date(sortedLogs[sortedLogs.length - 1].time);
+
+    // Determine trend
+    const firstPrice = sortedLogs[0].price;
+    const lastPrice = sortedLogs[sortedLogs.length - 1].price;
+    const isUp = lastPrice >= firstPrice;
+    const trendColor = isUp ? '#4ade80' : '#f87171';
+
+    container.innerHTML = `
+    <svg width="100%" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <linearGradient id="dashGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" style="stop-color: ${trendColor}; stop-opacity: 0.3"/>
+          <stop offset="100%" style="stop-color: ${trendColor}; stop-opacity: 0.02"/>
+        </linearGradient>
+      </defs>
+
+      <!-- Grid lines -->
+      <line class="dash-grid-line" x1="${padding.left}" y1="${padding.top}" x2="${width - padding.right}" y2="${padding.top}" stroke="#2a2a2a"/>
+      <line class="dash-grid-line" x1="${padding.left}" y1="${padding.top + chartHeight/2}" x2="${width - padding.right}" y2="${padding.top + chartHeight/2}" stroke="#2a2a2a"/>
+      <line class="dash-grid-line" x1="${padding.left}" y1="${padding.top + chartHeight}" x2="${width - padding.right}" y2="${padding.top + chartHeight}" stroke="#2a2a2a"/>
+
+      <!-- Price labels -->
+      <text x="${width - padding.right + 5}" y="${padding.top + 4}" fill="#8b8b8b" font-size="11">${formatPrice(paddedMax)}</text>
+      <text x="${width - padding.right + 5}" y="${padding.top + chartHeight/2 + 4}" fill="#8b8b8b" font-size="11">${formatPrice((paddedMax + paddedMin) / 2)}</text>
+      <text x="${width - padding.right + 5}" y="${padding.top + chartHeight + 4}" fill="#8b8b8b" font-size="11">${formatPrice(paddedMin)}</text>
+
+      <!-- Area fill -->
+      <path d="${areaPath}" fill="url(#dashGradient)"/>
+
+      <!-- Line -->
+      <path d="${linePath}" fill="none" stroke="${trendColor}" stroke-width="2"/>
+
+      <!-- Time labels -->
+      <text x="${padding.left}" y="${height - 5}" fill="#8b8b8b" font-size="11">${formatDateLabel(firstDate)}</text>
+      <text x="${width - padding.right}" y="${height - 5}" fill="#8b8b8b" font-size="11" text-anchor="end">${formatDateLabel(lastDate)}</text>
+    </svg>
+  `;
+  } catch (err) {
+    console.error('[Economy] Chart render error:', err);
+    container.innerHTML = '<div class="chart-empty">Error rendering chart</div>';
+  }
+}
+
+function formatDateLabel(date) {
+  const now = new Date();
+  const diffMs = now - date;
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffHours < 1) return 'Now';
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays}d ago`;
+
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// ========================================
+// Top Movers
+// ========================================
+
+function renderTopMovers() {
+  // Re-query elements in case they weren't available during init
+  const gainersContainer = elements.topGainers || document.getElementById('topGainers');
+  const losersContainer = elements.topLosers || document.getElementById('topLosers');
+
+  if (gainersContainer) elements.topGainers = gainersContainer;
+  if (losersContainer) elements.topLosers = losersContainer;
+
+  // Collect items from all cached categories
+  const allItems = [];
+  for (const [category, cached] of state.cache) {
+    if (cached.data) {
+      allItems.push(...cached.data);
+    }
+  }
+
+  // Filter items with any measurable price change (lower threshold)
+  const movers = allItems.filter(item => Math.abs(item.change) > 0.5);
+
+  // Calculate weighted score for each mover
+  // This weights by absolute exalted value change, not just percentage
+  // Formula: price * |change| / (100 + |change|) gives us approximate absolute gain/loss in exalted
+  const withWeightedScore = movers.map(item => ({
+    ...item,
+    weightedScore: item.price * Math.abs(item.change) / (100 + Math.abs(item.change))
+  }));
+
+  // Apply category filter for gainers - sort by weighted score
+  const filteredGainers = filterByCategory(withWeightedScore, state.gainersFilter);
+  const gainers = filteredGainers
+    .filter(i => i.change > 0)
+    .sort((a, b) => b.weightedScore - a.weightedScore)
+    .slice(0, 4);
+
+  // Apply category filter for losers - sort by weighted score
+  const filteredLosers = filterByCategory(withWeightedScore, state.losersFilter);
+  const losers = filteredLosers
+    .filter(i => i.change < 0)
+    .sort((a, b) => b.weightedScore - a.weightedScore)
+    .slice(0, 4);
+
+  // Render gainers
+  if (gainersContainer) {
+    gainersContainer.innerHTML = gainers.length > 0
+      ? gainers.map(item => createMoverItem(item)).join('')
+      : '<div class="mover-empty">No significant price changes</div>';
+  } else {
+    console.warn('[Economy] Top gainers container not found');
+  }
+
+  // Render losers
+  if (losersContainer) {
+    losersContainer.innerHTML = losers.length > 0
+      ? losers.map(item => createMoverItem(item)).join('')
+      : '<div class="mover-empty">No significant price changes</div>';
+  } else {
+    console.warn('[Economy] Top losers container not found');
+  }
+}
+
+function filterByCategory(items, filter) {
+  if (filter === 'all') return items;
+
+  const allowedCategories = CATEGORY_GROUPS[filter] || [];
+  return items.filter(item => allowedCategories.includes(item.category));
+}
+
+function createMoverItem(item) {
+  const changeClass = item.change > 0 ? 'up' : 'down';
+  const changeSign = item.change > 0 ? '+' : '';
+
+  return `
+    <div class="mover-item">
+      <div class="mover-icon">
+        ${item.icon ? `<img src="${item.icon}" alt="" loading="lazy">` : ''}
+      </div>
+      <div class="mover-info">
+        <span class="mover-name">${escapeHtml(item.name)}</span>
+        <span class="mover-price">${formatPrice(item.price)} ex</span>
+      </div>
+      <span class="mover-change ${changeClass}">${changeSign}${item.change.toFixed(1)}%</span>
+    </div>
+  `;
 }
 
 // ========================================
@@ -464,6 +1002,8 @@ function createItemCard(item) {
 
 function showLoading() {
   state.loading = true;
+  // Only show loading state when in items view
+  if (state.currentView !== 'items') return;
   if (elements.loading) elements.loading.style.display = 'flex';
   if (elements.error) elements.error.style.display = 'none';
   if (elements.items) elements.items.style.display = 'none';
@@ -472,12 +1012,16 @@ function showLoading() {
 
 function hideLoading() {
   state.loading = false;
+  // Only update when in items view
+  if (state.currentView !== 'items') return;
   if (elements.loading) elements.loading.style.display = 'none';
   if (elements.items) elements.items.style.display = 'grid';
 }
 
 function showError(message) {
   state.loading = false;
+  // Only show error state when in items view
+  if (state.currentView !== 'items') return;
   if (elements.loading) elements.loading.style.display = 'none';
   if (elements.error) elements.error.style.display = 'flex';
   if (elements.errorMsg) elements.errorMsg.textContent = message;
@@ -830,7 +1374,13 @@ function updateItemsMap(items) {
 // ========================================
 
 export function onEconomyTabActivated() {
-  if (!state.cache.has('currency')) {
-    fetchEconomyData();
+  // Always show dashboard when Economy tab is activated
+  if (state.currentView !== 'dashboard') {
+    showDashboardView();
+  }
+
+  // Load dashboard data if not loaded
+  if (!state.dashboardLoaded) {
+    loadDashboard();
   }
 }

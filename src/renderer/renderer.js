@@ -4,6 +4,7 @@
 
 import { initEconomy, fetchEconomyData, onEconomyTabActivated, getFavorites } from './economy.js';
 import { playSound } from './sounds.js';
+import { initHistory, loadDiscordSettings } from './history.js';
 
 // DOM Elements - Window Controls
 const minimizeBtn = document.getElementById('minimizeBtn');
@@ -114,6 +115,10 @@ async function init() {
 
   // Initialize economy module with saved favorites
   initEconomy(config);
+
+  // Initialize trade history module
+  initHistory();
+  loadDiscordSettings(config);
 
   // Start login process immediately
   startLogin();

@@ -5,6 +5,7 @@ import { readFile, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import electronUpdater from 'electron-updater';
 import player from 'play-sound';
+import { TradeHistory } from './src/trade-history.js';
 
 const { autoUpdater } = electronUpdater;
 
@@ -17,11 +18,16 @@ let sniper = null;
 let sniperRunning = false;
 let cookieExtractor = null;
 let browserPid = null; // Track browser PID for clean shutdown
+let tradeHistory = null; // Trade history manager
+let merchantSyncTimer = null; // Background sync interval
+let merchantSyncPaused = false; // Paused due to rate limit
+let merchantSyncResumeTimer = null; // Timer to resume after rate limit
 
 // Use userData directory for config (writable location)
 // This resolves to: Windows: %APPDATA%\Divinedge, macOS: ~/Library/Application Support/Divinedge
 const getConfigPath = () => join(app.getPath('userData'), 'config.json');
 const getBrowserProfilePath = () => join(app.getPath('userData'), 'browser-profile');
+const getTradeHistoryPath = () => join(app.getPath('userData'), 'trade-history.json');
 const soundPlayer = player({});
 
 // Default config
@@ -37,6 +43,12 @@ const defaultConfig = {
   reconnectDelayMs: 5000,
   fetchDelayMs: 100,
   teleportCooldownMs: 5000, // 5 second cooldown between teleports
+  discordWebhookUrl: '',
+  discordDisplayName: '',
+  discordEnabled: false,
+  discordMinDivine: 1, // Only post sales >= this value
+  merchantSyncEnabled: false, // Disabled - use manual sync button instead
+  merchantSyncIntervalMs: 900000, // 15 minutes (API limit: 15 req/3hr)
 };
 
 async function loadConfig() {
@@ -584,6 +596,199 @@ ipcMain.handle('cancel-cookie-extract', async () => {
   return { success: true };
 });
 
+// ========================================
+// Trade History IPC Handlers
+// ========================================
+
+async function initTradeHistory() {
+  const config = await loadConfig();
+  if (!config.poesessid) {
+    return null;
+  }
+
+  tradeHistory = new TradeHistory(config, {
+    historyFilePath: getTradeHistoryPath(),
+  });
+
+  // Forward events to renderer
+  tradeHistory.on('loaded', (data) => {
+    sendToRenderer('trade-history-loaded', data);
+  });
+
+  tradeHistory.on('updated', (data) => {
+    sendToRenderer('trade-history-updated', data);
+  });
+
+  tradeHistory.on('new-sale', (sale) => {
+    // Just notify renderer - Discord posting is done in batch after sync
+    sendToRenderer('trade-history-new-sale', sale);
+  });
+
+  tradeHistory.on('error', (data) => {
+    sendToRenderer('trade-history-error', data);
+  });
+
+  tradeHistory.on('rate-limited', ({ retryAfter }) => {
+    console.log(`[MerchantSync] Rate limited - pausing for ${retryAfter}s`);
+    merchantSyncPaused = true;
+    sendToRenderer('trade-history-rate-limited', { retryAfter });
+
+    // Clear any existing resume timer
+    if (merchantSyncResumeTimer) {
+      clearTimeout(merchantSyncResumeTimer);
+    }
+
+    // Schedule resume after rate limit clears (add 10s buffer)
+    merchantSyncResumeTimer = setTimeout(() => {
+      console.log('[MerchantSync] Rate limit cleared - resuming sync');
+      merchantSyncPaused = false;
+      sendToRenderer('log', { message: 'Merchant sync resumed' });
+    }, (retryAfter + 10) * 1000);
+  });
+
+  // Load from disk
+  await tradeHistory.loadFromDisk();
+
+  return tradeHistory;
+}
+
+async function startMerchantSync() {
+  const config = await loadConfig();
+
+  // Stop existing timer if any
+  stopMerchantSync();
+
+  if (!config.merchantSyncEnabled || !tradeHistory) {
+    return;
+  }
+
+  const intervalMs = config.merchantSyncIntervalMs || 180000;
+  console.log(`[MerchantSync] Starting background sync every ${intervalMs / 1000}s`);
+
+  merchantSyncTimer = setInterval(async () => {
+    // Skip if paused due to rate limit
+    if (merchantSyncPaused) {
+      console.log('[MerchantSync] Skipping sync - rate limited');
+      return;
+    }
+
+    try {
+      console.log('[MerchantSync] Running background sync...');
+      const result = await tradeHistory.refreshAndDetect();
+
+      if (result.newSales.length > 0) {
+        console.log(`[MerchantSync] Found ${result.newSales.length} new sale(s)`);
+        sendToRenderer('log', {
+          message: `${result.newSales.length} new sale(s) detected`,
+        });
+
+        // Batch post to Discord if enabled
+        const currentConfig = await loadConfig();
+        if (currentConfig.discordEnabled && currentConfig.discordWebhookUrl) {
+          // Filter sales by minimum divine value
+          const minDivine = currentConfig.discordMinDivine || 1;
+          const filteredSales = result.newSales.filter(sale => {
+            const amount = sale.price.amount;
+            const currency = sale.price.currency;
+            // Convert to divine equivalent
+            if (currency === 'divine') return amount >= minDivine;
+            if (currency === 'exalted') return (amount / 10) >= minDivine;
+            return (amount / 100) >= minDivine; // chaos and others
+          });
+
+          if (filteredSales.length > 0) {
+            console.log(`[MerchantSync] Posting ${filteredSales.length} sale(s) to Discord (filtered from ${result.newSales.length})...`);
+            const displayName = currentConfig.discordDisplayName || 'Player';
+            const postResult = await tradeHistory.postSalesToDiscord(
+              currentConfig.discordWebhookUrl,
+              filteredSales,
+              displayName
+            );
+            if (postResult.success) {
+              console.log(`[MerchantSync] Discord notification sent (${postResult.posted} items)`);
+            } else {
+              console.error('[MerchantSync] Discord post failed:', postResult.error);
+            }
+          } else {
+            console.log(`[MerchantSync] No sales >= ${minDivine} Divine to post`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[MerchantSync] Sync failed:', error);
+    }
+  }, intervalMs);
+}
+
+function stopMerchantSync() {
+  if (merchantSyncTimer) {
+    console.log('[MerchantSync] Stopping background sync');
+    clearInterval(merchantSyncTimer);
+    merchantSyncTimer = null;
+  }
+  if (merchantSyncResumeTimer) {
+    clearTimeout(merchantSyncResumeTimer);
+    merchantSyncResumeTimer = null;
+  }
+  merchantSyncPaused = false;
+}
+
+ipcMain.handle('get-trade-history', async () => {
+  if (!tradeHistory) {
+    await initTradeHistory();
+  }
+  if (!tradeHistory) {
+    return { sales: [], lastFetchTime: null };
+  }
+  return {
+    sales: tradeHistory.getSales(),
+    lastFetchTime: tradeHistory.getLastFetchTime(),
+  };
+});
+
+ipcMain.handle('refresh-trade-history', async () => {
+  if (!tradeHistory) {
+    await initTradeHistory();
+  }
+  if (!tradeHistory) {
+    return { success: false, error: 'Not authenticated' };
+  }
+
+  try {
+    const result = await tradeHistory.refreshAndDetect();
+    return {
+      success: true,
+      sales: result.sales,
+      newSales: result.newSales,
+    };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('save-discord-webhook', async (event, { url, displayName, enabled }) => {
+  const config = await loadConfig();
+  config.discordWebhookUrl = url || '';
+  config.discordDisplayName = displayName || '';
+  config.discordEnabled = enabled ?? config.discordEnabled;
+  await saveConfig(config);
+  return { success: true };
+});
+
+ipcMain.handle('test-discord-webhook', async (event, { url, displayName }) => {
+  const name = displayName || 'Player';
+  if (!tradeHistory) {
+    await initTradeHistory();
+  }
+  if (!tradeHistory) {
+    // Create temporary instance just for testing
+    const config = await loadConfig();
+    const tempHistory = new TradeHistory(config, {});
+    return await tempHistory.testWebhook(url, name);
+  }
+  return await tradeHistory.testWebhook(url, name);
+});
+
 // Auto-updater setup
 autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = true;
@@ -737,6 +942,29 @@ app.whenReady().then(async () => {
     autoUpdater.checkForUpdates().catch(() => {});
   }, 3000);
 
+  // Initialize merchant history and auto-sync after window is ready
+  setTimeout(async () => {
+    const config = await loadConfig();
+    if (config.poesessid) {
+      try {
+        await initTradeHistory();
+        if (tradeHistory) {
+          const result = await tradeHistory.refreshAndDetect();
+          if (result.newSales.length > 0) {
+            sendToRenderer('log', {
+              message: `Found ${result.newSales.length} new sale(s) since last session`,
+            });
+          }
+
+          // Start background sync
+          await startMerchantSync();
+        }
+      } catch (error) {
+        console.error('[MerchantSync] Auto-sync failed:', error);
+      }
+    }
+  }, 5000);
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -755,6 +983,7 @@ app.on('will-quit', () => {
 
 app.on('before-quit', async () => {
   app.isQuitting = true;
+  stopMerchantSync();
   if (sniper) {
     await sniper.stop();
   }

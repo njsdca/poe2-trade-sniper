@@ -202,7 +202,6 @@ export class DirectSniper extends EventEmitter {
     const { league } = this.config;
     const fetchUrl = `https://www.pathofexile.com/api/trade2/fetch/${itemIds.join(',')}?query=${queryId}&realm=poe2`;
     const cookieString = this.getCookieString();
-    const fetchStart = Date.now();
 
     const response = await fetch(fetchUrl, {
       method: 'GET',
@@ -221,8 +220,6 @@ export class DirectSniper extends EventEmitter {
     }
 
     const result = await response.json();
-    const fetchTime = Date.now() - fetchStart;
-    this.log('DEBUG', `Fetch completed in ${fetchTime}ms`, queryId);
 
     if (result.result && Array.isArray(result.result)) {
       for (const item of result.result) {
