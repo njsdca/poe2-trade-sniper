@@ -19,6 +19,9 @@ const RARITY_COLORS = {
   5: 0xAA9E82,  // Currency - tan
 };
 
+// Minimum time between API calls (GGG rate limit is ~15 requests per 3 hours = 12 min each)
+const MIN_FETCH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes to be safe
+
 export class TradeHistory extends EventEmitter {
   constructor(config, options = {}) {
     super();
@@ -28,6 +31,7 @@ export class TradeHistory extends EventEmitter {
     this.knownItemIds = new Set();
     this.lastFetchTime = null;
     this.loading = false;
+    this.rateLimitedUntil = null; // Timestamp when rate limit expires
   }
 
   // ========================================
@@ -36,6 +40,26 @@ export class TradeHistory extends EventEmitter {
 
   async fetchHistory() {
     if (this.loading) return null;
+
+    // Check if we're rate limited
+    if (this.rateLimitedUntil && Date.now() < this.rateLimitedUntil) {
+      const waitSecs = Math.ceil((this.rateLimitedUntil - Date.now()) / 1000);
+      console.log(`[TradeHistory] Still rate limited, ${waitSecs}s remaining`);
+      this.emit('rate-limited', { retryAfter: waitSecs });
+      return null;
+    }
+
+    // Check minimum interval between fetches
+    if (this.lastFetchTime) {
+      const elapsed = Date.now() - new Date(this.lastFetchTime).getTime();
+      if (elapsed < MIN_FETCH_INTERVAL_MS) {
+        const waitSecs = Math.ceil((MIN_FETCH_INTERVAL_MS - elapsed) / 1000);
+        console.log(`[TradeHistory] Too soon to fetch again, wait ${waitSecs}s`);
+        this.emit('error', { message: `Please wait ${Math.ceil(waitSecs / 60)} min before syncing again` });
+        return null;
+      }
+    }
+
     this.loading = true;
 
     try {
@@ -69,6 +93,7 @@ export class TradeHistory extends EventEmitter {
       if (response.status === 429) {
         const retryAfter = parseInt(response.headers.get('retry-after') || '3600', 10);
         console.log(`[TradeHistory] Rate limited - retry after ${retryAfter}s`);
+        this.rateLimitedUntil = Date.now() + (retryAfter * 1000);
         this.emit('rate-limited', { retryAfter });
         this.loading = false;
         return null;
@@ -85,6 +110,17 @@ export class TradeHistory extends EventEmitter {
       this.loading = false;
 
       if (data.result && Array.isArray(data.result)) {
+        // Log first sale structure for debugging (only once)
+        if (data.result.length > 0 && !this._loggedStructure) {
+          this._loggedStructure = true;
+          const sample = data.result[0];
+          console.log('[TradeHistory] Sale structure:', {
+            hasId: !!sample.id,
+            hasItemId: !!sample.item_id,
+            hasTime: !!sample.time,
+            keys: Object.keys(sample),
+          });
+        }
         return data.result;
       }
 
@@ -111,6 +147,8 @@ export class TradeHistory extends EventEmitter {
       this.sales = data.sales || [];
       this.knownItemIds = new Set(data.knownItemIds || []);
       this.lastFetchTime = data.lastFetchTime || null;
+      this.rateLimitedUntil = data.rateLimitedUntil || null;
+      console.log(`[TradeHistory] Loaded ${this.sales.length} sales, ${this.knownItemIds.size} known IDs`);
       this.emit('loaded', { count: this.sales.length });
     } catch (error) {
       console.error('[TradeHistory] Failed to load from disk:', error);
@@ -127,6 +165,7 @@ export class TradeHistory extends EventEmitter {
         sales: this.sales,
         knownItemIds: Array.from(this.knownItemIds),
         lastFetchTime: this.lastFetchTime,
+        rateLimitedUntil: this.rateLimitedUntil,
       };
       await writeFile(this.historyFilePath, JSON.stringify(data, null, 2));
     } catch (error) {
@@ -138,14 +177,29 @@ export class TradeHistory extends EventEmitter {
   // Sale Detection
   // ========================================
 
+  // Generate a unique key for a sale (GGG uses 'id' field, fallback to composite)
+  getSaleKey(sale) {
+    if (sale.id) return sale.id;
+    // Fallback: create composite key from time + item details
+    const itemKey = sale.item?.name || sale.item?.typeLine || '';
+    const priceKey = sale.price ? `${sale.price.amount}-${sale.price.currency}` : '';
+    return `${sale.time}-${itemKey}-${priceKey}`;
+  }
+
   detectNewSales(freshSales) {
     const newSales = [];
 
     for (const sale of freshSales) {
-      if (!this.knownItemIds.has(sale.item_id)) {
+      const saleKey = this.getSaleKey(sale);
+      if (!this.knownItemIds.has(saleKey)) {
         newSales.push(sale);
-        this.knownItemIds.add(sale.item_id);
+        this.knownItemIds.add(saleKey);
+        console.log(`[TradeHistory] New sale detected: ${saleKey}`);
       }
+    }
+
+    if (newSales.length === 0 && freshSales.length > 0) {
+      console.log(`[TradeHistory] All ${freshSales.length} sales already known`);
     }
 
     return newSales;

@@ -2,6 +2,18 @@
 
 All notable changes to Divinge will be documented in this file.
 
+## [3.0.2] - 2025-12-31
+
+### Fixed
+
+- **Duplicate Sale Notifications**: Fixed bug where the same sales were being reported as "new" on every sync. Now properly tracks seen sales using the correct API field (`id` instead of `item_id`).
+
+- **Rate Limit Protection**: Added 5-minute minimum interval between syncs to prevent hitting GGG's rate limits. The Sync button now shows an error if you try to sync too frequently.
+
+- **Persistent Rate Limit State**: Rate limit expiration is now saved to disk and persists across app restarts.
+
+---
+
 ## [3.0.1] - 2025-12-31
 
 ### Changed
