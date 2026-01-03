@@ -482,7 +482,7 @@ ipcMain.handle('export-searches', async (event, data) => {
       return { cancelled: true };
     }
 
-    writeFileSync(result.filePath, JSON.stringify(data, null, 2));
+    await writeFile(result.filePath, JSON.stringify(data, null, 2));
     return { success: true, path: result.filePath };
   } catch (error) {
     return { success: false, error: error.message };
@@ -501,7 +501,7 @@ ipcMain.handle('import-searches', async () => {
       return { cancelled: true };
     }
 
-    const content = readFileSync(result.filePaths[0], 'utf-8');
+    const content = await readFile(result.filePaths[0], 'utf-8');
     const data = JSON.parse(content);
     return { success: true, data };
   } catch (error) {
