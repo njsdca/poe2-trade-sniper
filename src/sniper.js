@@ -589,8 +589,8 @@ export class TradeSniper extends EventEmitter {
           // Mark as processing immediately
           this.processingIds.add(itemToken);
 
-          // OPTIMIZED: Use direct Node.js HTTP (no page.evaluate overhead!)
-          this.fetchItemsNodeDirect([itemToken], queryId, queryName)
+          // Use page.evaluate for authenticated requests (browser session required)
+          this.fetchItemsDirectly([itemToken], queryId, queryName, page)
             .catch(err => {
               this.log('WARN', `Direct fetch failed: ${err.message}`, queryId);
             })
@@ -882,7 +882,7 @@ export class TradeSniper extends EventEmitter {
     this.emit('status-change', { running: true });
 
     this.log('INFO', '='.repeat(60));
-    this.log('INFO', 'Divinge Starting (Optimized Direct HTTP)');
+    this.log('INFO', 'Divinge Starting');
     this.log('INFO', `League: ${decodeURIComponent(league)}`);
     this.log('INFO', `Monitoring ${queries.length} search(es): ${queries.map(q => q.id || q).join(', ')}`);
     this.log('INFO', '='.repeat(60));
