@@ -290,7 +290,12 @@ export class DirectSniper extends EventEmitter {
       headers: {
         'Cookie': cookieString,
         'Origin': 'https://www.pathofexile.com',
+        'Host': 'www.pathofexile.com',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
       },
     });
 
@@ -328,17 +333,25 @@ export class DirectSniper extends EventEmitter {
       try {
         const message = JSON.parse(data.toString());
 
-        if (message.new && Array.isArray(message.new) && message.new.length > 0) {
-          const itemIds = message.new;
-          this.log('INFO', `${itemIds.length} new item(s) - fetching...`, queryId);
+        // Handle auth confirmation
+        if (message.auth === true) {
+          this.log('INFO', 'WebSocket authenticated', queryId);
+          return;
+        }
 
-          // Fetch and process items immediately
-          this.fetchItems(itemIds, queryId, queryName).catch(err => {
+        // Handle new item notifications - GGG sends { result: "JWT_TOKEN", count: N }
+        if (message.result && typeof message.result === 'string') {
+          const itemToken = message.result;
+          const count = message.count || 1;
+          this.log('INFO', `${count} new item(s) - fetching...`, queryId);
+
+          // Fetch and process items immediately using the token
+          this.fetchItems([itemToken], queryId, queryName).catch(err => {
             this.log('ERROR', `Fetch failed: ${err.message}`, queryId);
           });
         }
       } catch (e) {
-        // Not JSON, ignore
+        // Not JSON (ping/pong frames), ignore
       }
     });
 

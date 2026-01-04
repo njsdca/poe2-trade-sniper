@@ -259,6 +259,109 @@ export class TradeSniper extends EventEmitter {
       : `POESESSID=${poesessid}`;
   }
 
+  // Direct HTTP headers for Node.js requests (bypasses page.evaluate overhead)
+  getDirectHttpHeaders() {
+    const { league } = this.config;
+    return {
+      'Cookie': this.getCookieString(),
+      'Origin': 'https://www.pathofexile.com',
+      'Referer': `https://www.pathofexile.com/trade2/search/poe2/${league}`,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'Accept': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+    };
+  }
+
+  // FAST: Direct whisper via Node.js HTTP (no page.evaluate overhead)
+  async triggerWhisperDirect(hideoutToken) {
+    const response = await fetch('https://www.pathofexile.com/api/trade2/whisper', {
+      method: 'POST',
+      headers: {
+        ...this.getDirectHttpHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ token: hideoutToken }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 403) {
+        this.log('ERROR', '!!! COOKIE EXPIRED !!!');
+        this.emit('cookie-expired');
+        this.playSound();
+        setTimeout(() => this.playSound(), 500);
+      }
+      throw new Error(`Whisper failed: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  // FAST: Direct fetch via Node.js HTTP (no page.evaluate overhead)
+  async fetchItemsNodeDirect(itemIds, queryId, queryName) {
+    const startTime = Date.now();
+    const fetchUrl = `https://www.pathofexile.com/api/trade2/fetch/${itemIds.join(',')}?query=${queryId}&realm=poe2`;
+
+    const response = await fetch(fetchUrl, {
+      headers: this.getDirectHttpHeaders(),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Fetch failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const fetchTime = Date.now() - startTime;
+
+    if (!data.result?.length) return;
+
+    for (const item of data.result) {
+      const hideoutToken = item?.listing?.hideout_token;
+      if (!hideoutToken || this.seenTokens.has(hideoutToken)) continue;
+
+      this.seenTokens.add(hideoutToken);
+
+      const price = item.listing?.price
+        ? `${item.listing.price.amount} ${item.listing.price.currency}`
+        : 'No price';
+      const itemName = item.item?.name || item.item?.typeLine || 'Unknown';
+      const account = item.listing?.account?.name || 'Unknown';
+
+      this.emit('listing', { queryId, queryName, itemName, price, account, hideoutToken });
+
+      // Check pause state
+      const queryState = this.queryStates.get(queryId);
+      if (queryState?.status === 'paused') {
+        this.log('INFO', `[PAUSED] ${itemName} @ ${price}`, queryId);
+        continue;
+      }
+
+      // Check cooldown
+      const now = Date.now();
+      if (now - this.lastTeleportTime < this.teleportCooldownMs) {
+        const remaining = Math.ceil((this.teleportCooldownMs - (now - this.lastTeleportTime)) / 1000);
+        this.log('WARN', `SKIPPED (cooldown ${remaining}s) - ${itemName}`, queryId);
+        continue;
+      }
+
+      this.lastTeleportTime = now;
+      this.log('INFO', `>>> SNIPED: ${itemName} @ ${price} from ${account} <<<`, queryId);
+
+      // FIRE DIRECT WHISPER - No page.evaluate!
+      this.triggerWhisperDirect(hideoutToken)
+        .then(() => {
+          const totalTime = Date.now() - startTime;
+          this.log('SUCCESS', `TELEPORT in ${totalTime}ms (fetch: ${fetchTime}ms)`, queryId);
+          this.emit('teleport', { queryId, elapsed: totalTime, itemName, price });
+          this.playSound();
+        })
+        .catch((err) => {
+          this.log('ERROR', `Whisper failed: ${err.message}`, queryId);
+          this.emit('error', { queryId, error: err.message });
+          this.lastTeleportTime = 0;
+        });
+    }
+  }
+
   async triggerWhisper(hideoutToken, page) {
     // Use page.evaluate to make request from browser context (has all auth cookies)
     const result = await page.evaluate(async (token) => {
@@ -486,8 +589,8 @@ export class TradeSniper extends EventEmitter {
           // Mark as processing immediately
           this.processingIds.add(itemToken);
 
-          // Fetch item directly using the token (faster than waiting for page)
-          this.fetchItemsDirectly([itemToken], queryId, queryName, page)
+          // OPTIMIZED: Use direct Node.js HTTP (no page.evaluate overhead!)
+          this.fetchItemsNodeDirect([itemToken], queryId, queryName)
             .catch(err => {
               this.log('WARN', `Direct fetch failed: ${err.message}`, queryId);
             })
@@ -779,7 +882,7 @@ export class TradeSniper extends EventEmitter {
     this.emit('status-change', { running: true });
 
     this.log('INFO', '='.repeat(60));
-    this.log('INFO', 'Divinedge Starting');
+    this.log('INFO', 'Divinge Starting (Optimized Direct HTTP)');
     this.log('INFO', `League: ${decodeURIComponent(league)}`);
     this.log('INFO', `Monitoring ${queries.length} search(es): ${queries.map(q => q.id || q).join(', ')}`);
     this.log('INFO', '='.repeat(60));
